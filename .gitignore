@@ -1,0 +1,10 @@
+*.zip
+build/
+.gradle/
+local.properties
+android/app/build/
+server/data/
+*.pyc
+__pycache__/
+.qb.env
+dist/

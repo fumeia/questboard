@@ -1,0 +1,200 @@
+/* Questboard — tuned for the default (dark) GNOME Shell popover. */
+
+.qb-root { padding: 4px 6px 6px 6px; spacing: 8px; }
+.qb-body { spacing: 10px; }
+.qb-left { spacing: 6px; }
+
+.qb-icon { icon-size: 16px; }
+.qb-muted { color: rgba(255,255,255,0.5); font-size: 0.85em; }
+.qb-empty { color: rgba(255,255,255,0.38); font-size: 0.85em; padding: 6px 4px; font-style: italic; }
+
+/* buttons */
+.qb-btn, .qb-icon-btn {
+  border-radius: 8px; padding: 4px 8px; color: #fff;
+  background-color: rgba(255,255,255,0.08); transition-duration: 120ms;
+}
+.qb-btn:hover, .qb-icon-btn:hover { background-color: rgba(255,255,255,0.16); }
+.qb-btn:active, .qb-icon-btn:active, .qb-btn:checked { background-color: rgba(255,255,255,0.24); }
+.qb-btn-inner { spacing: 5px; }
+.qb-flat { background-color: transparent; padding: 5px; }
+.qb-small { font-size: 0.85em; padding: 3px 8px; }
+.qb-tiny { padding: 3px; }
+.qb-tiny .qb-icon { icon-size: 14px; }
+.qb-accent { background-color: rgba(53,132,228,0.55); }
+.qb-accent:hover { background-color: rgba(53,132,228,0.75); }
+.qb-danger:hover { background-color: rgba(229,83,75,0.5); }
+.qb-running .qb-icon { color: #57e389; }
+.qb-round { border-radius: 99px; padding: 8px; background-color: rgba(255,255,255,0.12); }
+.qb-round.qb-running { background-color: rgba(87,227,137,0.25); }
+
+.qb-entry {
+  border-radius: 8px; padding: 4px 8px; font-size: 0.88em; min-height: 0;
+  background-color: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.06);
+  color: #fff; selected-color: #fff; caret-color: #fff;
+}
+.qb-entry:focus { border-color: rgba(53,132,228,0.9); background-color: rgba(255,255,255,0.1); }
+.qb-mins { width: 52px; }
+
+/* header */
+.qb-header { spacing: 10px; padding: 2px 2px 4px 2px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.qb-level { spacing: 8px; }
+.qb-level-badge {
+  font-weight: 800; font-size: 0.9em; padding: 3px 9px; border-radius: 99px;
+  background-gradient-direction: horizontal; background-gradient-start: #9141ac; background-gradient-end: #3584e4;
+}
+.qb-xp-track { height: 6px; border-radius: 3px; background-color: rgba(255,255,255,0.12); }
+.qb-xp-fill { height: 6px; border-radius: 3px; background-color: #f6d32d; }
+.qb-xp-label { font-size: 0.72em; color: rgba(255,255,255,0.55); padding-top: 2px; }
+.qb-stats { font-size: 0.85em; color: rgba(255,255,255,0.8); }
+.qb-tabs { spacing: 2px; padding: 2px; border-radius: 10px; background-color: rgba(255,255,255,0.06); }
+.qb-tab { background-color: transparent; font-size: 0.88em; padding: 3px 10px; }
+.qb-tab:checked { background-color: rgba(255,255,255,0.18); font-weight: bold; }
+.qb-chip { border-radius: 99px; padding: 3px 10px; background-color: rgba(87,227,137,0.2); color: #8ff0a4; }
+.qb-chip BoxLayout { spacing: 5px; }
+.qb-chip-label { font-feature-settings: "tnum"; font-weight: bold; font-size: 0.88em; }
+
+/* quadrant colours */
+.qb-dot { width: 8px; height: 8px; border-radius: 4px; margin: 0 4px; }
+.qb-dot.qb-q1, .qb-qdot.qb-q1 { background-color: #e5534b; }
+.qb-dot.qb-q2, .qb-qdot.qb-q2 { background-color: #3584e4; }
+.qb-dot.qb-q3, .qb-qdot.qb-q3 { background-color: #e5a50a; }
+.qb-dot.qb-q4, .qb-qdot.qb-q4 { background-color: #9a9996; }
+
+/* matrix */
+.qb-quad {
+  border-radius: 12px; padding: 8px; spacing: 6px;
+  background-color: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);
+  border-top-width: 3px;
+}
+.qb-quad.qb-q1 { border-top-color: #e5534b; background-color: rgba(229,83,75,0.07); }
+.qb-quad.qb-q2 { border-top-color: #3584e4; background-color: rgba(53,132,228,0.07); }
+.qb-quad.qb-q3 { border-top-color: #e5a50a; background-color: rgba(229,165,10,0.07); }
+.qb-quad.qb-q4 { border-top-color: #9a9996; background-color: rgba(154,153,150,0.06); }
+.qb-quad-head { spacing: 6px; }
+.qb-quad-title { font-weight: bold; font-size: 0.95em; }
+.qb-quad-sub { font-size: 0.72em; color: rgba(255,255,255,0.5); }
+.qb-quad-count {
+  font-size: 0.75em; font-weight: bold; padding: 1px 7px; border-radius: 99px;
+  background-color: rgba(255,255,255,0.12);
+}
+
+/* quests */
+.qb-quest-list { spacing: 2px; }
+.qb-quest { border-radius: 8px; padding: 1px 2px; }
+.qb-quest:hover { background-color: rgba(255,255,255,0.05); }
+.qb-quest.expanded { background-color: rgba(255,255,255,0.08); padding-bottom: 6px; }
+.qb-quest-row { spacing: 4px; }
+.qb-check {
+  width: 16px; height: 16px; border-radius: 5px; padding: 1px; margin: 2px 2px;
+  border: 1.5px solid rgba(255,255,255,0.45);
+}
+.qb-check:hover { border-color: #fff; }
+.qb-check-icon { icon-size: 12px; color: transparent; }
+.qb-check.checked { background-color: #2ec27e; border-color: #2ec27e; }
+.qb-check.checked .qb-check-icon { color: #fff; }
+.qb-quest-title-btn { padding: 3px 2px; border-radius: 6px; }
+.qb-quest-title { font-size: 0.9em; }
+.qb-quest.done .qb-quest-title { color: rgba(255,255,255,0.4); }
+.qb-quest-time { font-size: 0.75em; color: rgba(255,255,255,0.55); font-feature-settings: "tnum"; }
+.qb-quest-sched {
+  font-size: 0.72em; padding: 0 5px; border-radius: 4px;
+  background-color: rgba(53,132,228,0.25); color: #99c1f1;
+}
+.qb-actions { spacing: 5px; padding: 4px 4px 0 24px; }
+.qb-actions-row { spacing: 4px; }
+.qb-move.qb-q1 { background-color: rgba(229,83,75,0.35); }
+.qb-move.qb-q2 { background-color: rgba(53,132,228,0.35); }
+.qb-move.qb-q3 { background-color: rgba(229,165,10,0.35); }
+.qb-move.qb-q4 { background-color: rgba(154,153,150,0.3); }
+.qb-dur.checked { background-color: rgba(53,132,228,0.5); }
+
+/* quests page */
+.qb-page { spacing: 8px; }
+.qb-section { spacing: 2px; padding: 8px 2px 2px 2px; }
+.qb-section-title { font-weight: bold; font-size: 0.85em; color: rgba(255,255,255,0.75); }
+.qb-section-done { padding: 10px 4px 2px 4px; }
+.qb-page-foot { spacing: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.08); }
+
+/* timers */
+.qb-new-timer { spacing: 6px; }
+.qb-link-row { spacing: 4px; }
+.qb-link-row > BoxLayout { spacing: 6px; }
+.qb-link { max-width: 220px; }
+.qb-link BoxLayout { spacing: 4px; }
+.qb-link-label { font-size: 0.85em; }
+.qb-picker {
+  spacing: 1px; padding: 4px; border-radius: 8px; margin-top: 4px;
+  background-color: rgba(0,0,0,0.25);
+}
+.qb-pick { background-color: transparent; font-size: 0.85em; padding: 4px 8px; }
+.qb-pick BoxLayout { spacing: 4px; }
+.qb-pick.checked { background-color: rgba(53,132,228,0.4); }
+.qb-timer-list { spacing: 8px; }
+.qb-timer {
+  border-radius: 12px; padding: 10px 12px; spacing: 8px;
+  background-color: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.06);
+}
+.qb-timer.running { border-color: rgba(87,227,137,0.45); }
+.qb-timer.finished { border-color: rgba(246,211,45,0.5); }
+.qb-timer-top { spacing: 10px; }
+.qb-timer-time { font-size: 1.7em; font-weight: 800; font-feature-settings: "tnum"; min-width: 92px; }
+.qb-timer-kind { font-size: 0.78em; color: rgba(255,255,255,0.55); font-weight: bold; }
+.qb-timer-track { height: 4px; border-radius: 2px; background-color: rgba(255,255,255,0.1); }
+.qb-timer-fill { height: 4px; border-radius: 2px; background-color: #57e389; }
+.qb-kind-pomodoro .qb-timer-fill { background-color: #e5534b; }
+.qb-kind-break .qb-timer-fill { background-color: #62a0ea; }
+
+/* calendar */
+.qb-cal {
+  spacing: 6px; padding: 8px; border-radius: 12px;
+  background-color: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);
+}
+.qb-cal-head { spacing: 2px; }
+.qb-cal-title { font-weight: bold; padding-left: 6px; }
+.qb-week { spacing: 2px; }
+.qb-day { border-radius: 8px; padding: 3px 0; }
+.qb-day:hover { background-color: rgba(255,255,255,0.08); }
+.qb-day.selected { background-color: rgba(53,132,228,0.5); }
+.qb-day.today .qb-day-num { color: #f66151; font-weight: 800; }
+.qb-day.today.selected .qb-day-num { color: #fff; }
+.qb-day-inner { spacing: 1px; }
+.qb-day-name { font-size: 0.7em; color: rgba(255,255,255,0.55); }
+.qb-day-num { font-size: 0.9em; font-weight: bold; }
+.qb-day-dot { width: 4px; height: 4px; border-radius: 2px; background-color: rgba(255,255,255,0.7); }
+.qb-day-dot.empty { background-color: transparent; }
+.qb-allday { spacing: 2px; }
+.qb-allday-item {
+  font-size: 0.8em; padding: 2px 8px; border-radius: 6px;
+  background-color: rgba(51,182,121,0.35);
+}
+.qb-quick { spacing: 4px; padding: 6px; border-radius: 8px; background-color: rgba(53,132,228,0.18); }
+.qb-quick-top { spacing: 4px; }
+.qb-quick-label { font-size: 0.82em; font-weight: bold; }
+.qb-qdot { width: 14px; height: 14px; border-radius: 7px; border: 2px solid transparent; }
+.qb-qdot:checked { border-color: #fff; }
+.qb-hour-line { background-color: rgba(255,255,255,0.08); }
+.qb-hour-label { font-size: 0.7em; color: rgba(255,255,255,0.45); text-align: right; font-feature-settings: "tnum"; }
+.qb-slot { border-radius: 6px; }
+.qb-slot:hover { background-color: rgba(255,255,255,0.05); }
+.qb-slot.selected { background-color: rgba(53,132,228,0.35); border: 1px dashed rgba(153,193,241,0.8); }
+.qb-now-line { background-color: #f66151; border-radius: 1px; }
+.qb-block { border-radius: 6px; padding: 2px 6px; color: #fff; }
+.qb-block-title { font-size: 0.78em; font-weight: bold; }
+.qb-block-time { font-size: 0.68em; color: rgba(255,255,255,0.75); }
+.qb-event { background-color: rgba(51,182,121,0.55); border-left: 3px solid #33b679; }
+.qb-event:hover { background-color: rgba(51,182,121,0.75); }
+.qb-qblock.qb-q1 { background-color: rgba(229,83,75,0.5); border-left: 3px solid #e5534b; }
+.qb-qblock.qb-q2 { background-color: rgba(53,132,228,0.5); border-left: 3px solid #3584e4; }
+.qb-qblock.qb-q3 { background-color: rgba(229,165,10,0.5); border-left: 3px solid #e5a50a; }
+.qb-qblock.qb-q4 { background-color: rgba(154,153,150,0.45); border-left: 3px solid #9a9996; }
+.qb-qblock:hover { background-color: rgba(255,255,255,0.25); }
+.qb-qblock.done { color: rgba(255,255,255,0.5); }
+.qb-cal-foot { spacing: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.08); }
+
+/* top bar badge */
+.qb-panel-badge {
+  spacing: 4px; margin-right: 6px; padding: 0 6px; border-radius: 99px;
+  background-color: rgba(87,227,137,0.22);
+}
+.qb-panel-badge-icon { icon-size: 13px; }
+.qb-panel-badge-label { font-feature-settings: "tnum"; font-weight: bold; }

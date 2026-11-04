@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.questboard" path="/org/gnome/shell/extensions/questboard/">
+    <key name="popup-width" type="i">
+      <default>0</default>
+      <summary>Popup width in pixels (0 = match the stock calendar popup)</summary>
+    </key>
+    <key name="popup-height" type="i">
+      <default>0</default>
+      <summary>Popup height in pixels (0 = match the stock calendar popup)</summary>
+    </key>
+    <key name="pomodoro-minutes" type="i">
+      <default>25</default>
+      <summary>Pomodoro length in minutes</summary>
+    </key>
+    <key name="break-minutes" type="i">
+      <default>5</default>
+      <summary>Break length in minutes</summary>
+    </key>
+    <key name="day-start-hour" type="i">
+      <default>8</default>
+      <summary>Hour the timeline scrolls to for days other than today</summary>
+    </key>
+    <key name="show-panel-timer" type="b">
+      <default>true</default>
+      <summary>Show the running timer next to the clock</summary>
+    </key>
+  </schema>
+</schemalist>

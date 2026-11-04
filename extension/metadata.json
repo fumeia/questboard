@@ -1,0 +1,9 @@
+{
+  "uuid": "questboard@marci.local",
+  "name": "Questboard",
+  "description": "Replaces the date/time popup with an Eisenhower-matrix quest board, a Google-synced day calendar (via GNOME Online Accounts) and focus timers linked to quests.",
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
+  "settings-schema": "org.gnome.shell.extensions.questboard",
+  "url": "",
+  "version": 1
+}
