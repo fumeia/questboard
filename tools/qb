@@ -206,10 +206,26 @@ def cmd_publish(a):
     print(f"published {a.target} v{r['code']} ({r['size'] // 1024} KiB, sha256 {r['sha256'][:12]}…)")
 
 
+def enable_via_gsettings():
+    """`gnome-extensions enable` asks the *running* shell, which on Wayland doesn't know a freshly
+    installed extension yet ("does not exist"). Writing the setting works offline and is picked up
+    by the next shell start (next login or a nested shell)."""
+    import ast
+    raw = subprocess.check_output(["gsettings", "get", "org.gnome.shell", "enabled-extensions"], text=True)
+    cur = ast.literal_eval(raw.replace("@as ", "").strip())
+    if UUID not in cur:
+        cur.append(UUID)
+        subprocess.run(["gsettings", "set", "org.gnome.shell", "enabled-extensions", str(cur)], check=True)
+    subprocess.run(["gsettings", "set", "org.gnome.shell", "disable-user-extensions", "false"], check=True)
+
+
 def cmd_install(a):
     path, _ = cmd_pack()
     subprocess.run(["gnome-extensions", "install", "--force", path], check=True)
-    print("Installed. Log out and back in (Wayland) to load it, then: gnome-extensions enable " + UUID)
+    enable_via_gsettings()
+    print("Installed and enabled. It loads at the next GNOME Shell start:")
+    print("  - log out and back in, or")
+    print("  - try it now in a window: dbus-run-session -- gnome-shell --devkit   (GNOME 45-48: --nested --wayland)")
 
 
 def main():

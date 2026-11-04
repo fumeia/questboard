@@ -90,10 +90,10 @@ sudo apt install gir1.2-ecal-2.0 gir1.2-edataserver-1.2   # lets Questboard edit
 cd questboard
 python3 tools/qb install                                  # packs + installs the extension
 ```
-Log out and back in (required on Wayland), then:
-```bash
-gnome-extensions enable questboard@marci.local
-```
+`qb install` also enables it. Log out and back in (required on Wayland) and it's active.
+(Don't use `gnome-extensions enable` right after installing: on Wayland the running shell doesn't know the
+new extension yet and answers "does not exist".) To try it without logging out, run a nested shell in a
+window: `dbus-run-session -- gnome-shell --devkit` (GNOME 49+) or `--nested --wayland` (45–48).
 
 **Google Calendar:** Settings → Online Accounts → Google → make sure **Calendar** is on. Questboard reads
 and writes the same calendars GNOME uses — there is no separate Google login.
