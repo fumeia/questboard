@@ -1,0 +1,10 @@
+services:
+  questboard:
+    build: .
+    container_name: questboard
+    restart: unless-stopped
+    env_file: .env          # QB_TOKEN=...  (see .env.example)
+    ports:
+      - "8787:8787"         # change the left side if 8787 is taken
+    volumes:
+      - ./data:/data

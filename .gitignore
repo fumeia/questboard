@@ -8,3 +8,4 @@ server/data/
 __pycache__/
 .qb.env
 dist/
+.claude/
