@@ -96,6 +96,50 @@ def touch_device(body, ip, synced=False):
     )
 
 
+def upsert_record(d, coll, rec, device, seq):
+    """LWW write inside an open transaction (caller holds _lock). Returns new seq or None."""
+    rid = str(rec.get("id", ""))
+    upd = rec.get("updatedAt")
+    data = json.dumps(rec, separators=(",", ":"), sort_keys=True)
+    row = d.execute("SELECT updated_at, data FROM records WHERE coll=? AND id=?", (coll, rid)).fetchone()
+    if row and (upd < row[0] or (upd == row[0] and data <= row[1])):
+        return None
+    seq += 1
+    d.execute("INSERT OR REPLACE INTO records(coll, id, data, updated_at, seq, device) VALUES(?,?,?,?,?,?)",
+              (coll, rid, data, int(upd), seq, device))
+    return seq
+
+
+def get_record(coll, rid):
+    row = db().execute("SELECT data FROM records WHERE coll=? AND id=?", (coll, rid)).fetchone()
+    return json.loads(row[0]) if row else None
+
+
+def server_write(records, device="server"):
+    """Write [(coll, rec)] from server-side integrations (e.g. Notion)."""
+    with _lock:
+        d = db()
+        seq = d.execute("SELECT COALESCE(MAX(seq),0) FROM records").fetchone()[0]
+        n = 0
+        for coll, rec in records:
+            new = upsert_record(d, coll, rec, device, seq)
+            if new:
+                seq = new
+                n += 1
+        d.commit()
+    return n
+
+
+def server_log(level, tag, msg, ctx=None):
+    """Server-side events show up in `qb logs` like device logs."""
+    print(f"{level.upper()} [{tag}] {msg}", flush=True)
+    with _lock:
+        db().execute("INSERT INTO logs(ts, received, device, platform, version, level, tag, msg, ctx) VALUES(?,?,?,?,?,?,?,?,?)",
+                     (now_ms(), now_ms(), "server", "server", "", level, tag, msg[:8000],
+                      json.dumps(ctx)[:8000] if ctx is not None else None))
+        db().commit()
+
+
 def do_sync(body, ip):
     since = int(body.get("since") or 0)
     changes = body.get("changes") or []
@@ -116,20 +160,13 @@ def do_sync(body, ip):
             if not ID_RE.match(rid) or not isinstance(upd, (int, float)) or isinstance(upd, bool):
                 rejected += 1
                 continue
-            data = json.dumps(rec, separators=(",", ":"), sort_keys=True)
-            if len(data) > 256 * 1024:
+            if len(json.dumps(rec)) > 256 * 1024:
                 rejected += 1
                 continue
-            row = d.execute("SELECT updated_at, data FROM records WHERE coll=? AND id=?", (coll, rid)).fetchone()
-            # last-writer-wins, deterministic tie-break on content
-            if row and (upd < row[0] or (upd == row[0] and data <= row[1])):
-                continue
-            seq += 1
-            d.execute(
-                "INSERT OR REPLACE INTO records(coll, id, data, updated_at, seq, device) VALUES(?,?,?,?,?,?)",
-                (coll, rid, data, int(upd), seq, device),
-            )
-            accepted += 1
+            new = upsert_record(d, coll, rec, device, seq)  # last-writer-wins
+            if new:
+                seq = new
+                accepted += 1
         touch_device(body, ip, synced=True)
         d.commit()
         rows = d.execute(
@@ -373,6 +410,9 @@ def main():
     if len(TOKEN) < 16:
         sys.exit("QB_TOKEN must be set (>= 16 chars). Generate one: python3 -c 'import secrets;print(secrets.token_urlsafe(32))'")
     db()
+    if os.environ.get("NOTION_TOKEN"):
+        import notion_sync
+        notion_sync.start(sys.modules[__name__])
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     print(f"Questboard server on :{PORT}, data in {DATA_DIR}", flush=True)
     srv.serve_forever()

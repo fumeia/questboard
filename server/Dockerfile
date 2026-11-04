@@ -1,6 +1,6 @@
 FROM python:3.12-alpine
 WORKDIR /app
-COPY qb_server.py .
+COPY qb_server.py notion_sync.py notion.json ./
 ENV QB_DATA=/data QB_PORT=8787 PYTHONUNBUFFERED=1
 VOLUME /data
 EXPOSE 8787
