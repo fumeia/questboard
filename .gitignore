@@ -9,3 +9,4 @@ __pycache__/
 .qb.env
 dist/
 .claude/
+keystore.properties

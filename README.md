@@ -1,32 +1,32 @@
-# Questboard — GNOME Shell extension
+# Questboard
 
-Clicking the date/time in the top bar opens **Questboard** instead of the stock
-notifications/calendar popup, at the same size and position.
+Eisenhower-matrix quest board + habits + XP rewards shop + Google calendar + focus timers,
+on the GNOME desktop (replaces the date/time popup) and on Android, synced through your own server.
 
-- **Eisenhower matrix** (first view): Do first · Schedule · Delegate · Eliminate.
-  Type in a quadrant's box + Enter to add a quest. Click a quest's title for actions:
-  rename, move quadrant, 25-min focus, schedule into the calendar, duration, delete.
-- **Quests**: XP for completing quests (Q2 gives the most, on purpose), levels, a daily
-  streak 🔥, quests done today and focus time today in the header.
-- **Calendar** (right side): week strip + hour-by-hour day timeline. Google events
-  come from **GNOME Online Accounts**. Click an empty half-hour slot to add a quest
-  there; scheduled quests appear as colored blocks.
-- **Timers**: Pomodoro / break / stopwatch / custom countdowns. Each can be linked to a
-  quest and the time is added to that quest. ▶ on any quest row starts its stopwatch.
-  The running timer shows next to the clock; you get a notification when it's done.
-- The ✉ icon in the header switches to GNOME's notification/calendar view until the
-  popup closes.
+| Part | Folder | State |
+|---|---|---|
+| Sync / dev server (Docker) | `server/` | done, tested (sync, logs, releases, Notion two-way sync) |
+| GNOME extension v2 | `extension/` | done, syntax-checked + store/sync tested; not yet run on a real desktop |
+| `qb` developer CLI | `tools/qb` | done, tested against the server |
+| Android app (Kotlin/Compose) | `android/` | **in progress** — data/sync/notifications/calendar layers written, UI screens next, not built yet |
 
-## Install
+## Status / next steps (where we stopped)
+1. Android: write the Compose UI (`ui/`: MainActivity, Matrix, Habits, Calendar, Timers, Shop, Settings), then build with
+   `tools/qb publish android` (JDK + SDK live in `/workspace/.buildtools`, release key in `/workspace/.buildtools/keystore/`).
+2. Write the full install/debug/development guide (this README) once the app builds.
+3. First real-desktop run of the extension; fix whatever the logs show.
+
+## Quick start (already usable: server + desktop)
 ```bash
-./install.sh
-# Wayland: log out and back in, then:
-gnome-extensions enable questboard@marci.local
+# on the Ubuntu server
+cd server && cp .env.example .env   # put a long random QB_TOKEN in it
+# optional Notion sync: add NOTION_TOKEN=secret_... to .env (share "Objekte DB" + "Module DB" with the integration)
+docker compose up -d --build
+
+# on the desktop (repo root)
+sudo apt install gir1.2-ecal-2.0 gir1.2-edataserver-1.2   # needed for editing calendar events
+python3 tools/qb install                                    # then log out/in, gnome-extensions enable questboard@marci.local
+# Questboard settings → Sync: server URL + token → Test
 ```
-Google Calendar: *Settings → Online Accounts → Google*, with **Calendar** turned on.
-Settings (size, pomodoro length, …): `gnome-extensions prefs questboard@marci.local`.
-
-Data: `~/.local/share/questboard/data.json`. Every item has an id and `updatedAt`,
-and deletions are kept in `deleted[]`, so it's ready for a sync server.
-
-Debug: `journalctl -f -o cat /usr/bin/gnome-shell | grep -i questboard`
+Dev loop: `.qb.env` in the repo root with `QB_URL=` / `QB_TOKEN=`, then `tools/qb status`, `tools/qb logs -f`,
+`tools/qb publish extension --bump -m "notes"`. Live log console: `http://<server>:8787/`.
