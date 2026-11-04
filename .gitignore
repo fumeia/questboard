@@ -10,3 +10,4 @@ __pycache__/
 dist/
 .claude/
 keystore.properties
+tests/build/
