@@ -11,3 +11,4 @@ dist/
 .claude/
 keystore.properties
 tests/build/
+nested.log
