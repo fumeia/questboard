@@ -9,6 +9,32 @@ import Pango from 'gi://Pango';
 import St from 'gi://St';
 
 let _hasOrientation = null;
+let _iconDir = null;
+let _errorHandler = e => console.error(`[Questboard] ${e}\n${e?.stack ?? ''}`);
+
+/** Folder holding qb-<name>-symbolic.svg files. */
+export function setIconDir(dir) {
+    _iconDir = dir;
+}
+
+/** Route exceptions from button handlers to the logger. */
+export function setErrorHandler(fn) {
+    _errorHandler = fn;
+}
+
+export function guard(fn, where = 'ui') {
+    return (...args) => {
+        try {
+            const r = fn(...args);
+            if (r?.catch)
+                r.catch(e => _errorHandler(e, where));
+            return r;
+        } catch (e) {
+            _errorHandler(e, where);
+            return undefined;
+        }
+    };
+}
 
 function hasOrientation() {
     if (_hasOrientation === null) {
@@ -43,8 +69,33 @@ export function label(text, style_class = '', {ellipsize = false, wrap = false, 
     return l;
 }
 
-export function icon(icon_name, style_class = 'qb-icon') {
-    return new St.Icon({icon_name, style_class});
+const _giconCache = new Map();
+
+/** Gio.Icon for a bundled ('qb-…') or theme icon name. */
+export function gicon(name) {
+    let g = _giconCache.get(name);
+    if (!g) {
+        g = name.startsWith('qb-') && _iconDir
+            ? Gio.FileIcon.new(Gio.File.new_for_path(`${_iconDir}/${name}-symbolic.svg`))
+            : Gio.ThemedIcon.new(name);
+        _giconCache.set(name, g);
+    }
+    return g;
+}
+
+/** 'qb-flame' style names load our bundled SVGs; anything else is a theme icon. */
+export function icon(name, style_class = 'qb-icon') {
+    return new St.Icon({gicon: gicon(name), style_class});
+}
+
+/** Icon + label in one row (for stats, headers…). */
+export function iconLabel(iconName, text, style_class = '') {
+    const b = box({style_class: `qb-iconlabel ${style_class}`});
+    b.add_child(icon(iconName));
+    const l = label(text);
+    b.add_child(l);
+    b.labelActor = l;
+    return b;
 }
 
 export function iconButton(iconName, style_class, onClick, accessible_name = '') {
@@ -55,7 +106,7 @@ export function iconButton(iconName, style_class, onClick, accessible_name = '')
         y_align: Clutter.ActorAlign.CENTER,
         accessible_name,
     });
-    b.connect('clicked', () => onClick());
+    b.connect('clicked', guard(() => onClick(), accessible_name || iconName));
     return b;
 }
 
@@ -67,7 +118,7 @@ export function textButton(text, style_class, onClick, extra = {}) {
         y_align: Clutter.ActorAlign.CENTER,
         ...extra,
     });
-    b.connect('clicked', () => onClick());
+    b.connect('clicked', guard(() => onClick(), text));
     return b;
 }
 
@@ -82,8 +133,38 @@ export function iconTextButton(iconName, text, style_class, onClick) {
         can_focus: true,
         y_align: Clutter.ActorAlign.CENTER,
     });
-    b.connect('clicked', () => onClick());
+    b.connect('clicked', guard(() => onClick(), text));
     return b;
+}
+
+/** Plain St.Button with a guarded click handler. */
+export function button(params, onClick, where = 'button') {
+    const b = new St.Button({can_focus: true, ...params});
+    b.connect('clicked', guard(() => onClick(), where));
+    return b;
+}
+
+/** Entry that calls onSubmit(text) on Enter. */
+export function entry(hint, style_class, onSubmit, params = {}) {
+    const e = new St.Entry({hint_text: hint, style_class: `qb-entry ${style_class}`, can_focus: true, ...params});
+    e.clutter_text.connect('activate', guard(() => onSubmit(e.get_text(), e), 'entry'));
+    return e;
+}
+
+/** Parse "14:30", "1430", "9", "2:30pm", "9 am" → minutes since midnight, or null. */
+export function parseTime(text) {
+    const m = String(text).trim().toLowerCase().match(/^(\d{1,2})(?::?(\d{2}))?\s*(am|pm)?$/);
+    if (!m)
+        return null;
+    let h = parseInt(m[1], 10);
+    const min = m[2] ? parseInt(m[2], 10) : 0;
+    if (m[3] === 'pm' && h < 12)
+        h += 12;
+    if (m[3] === 'am' && h === 12)
+        h = 0;
+    if (h > 24 || min > 59 || (h === 24 && min > 0))
+        return null;
+    return h * 60 + min;
 }
 
 export function scroll(child, params = {}) {

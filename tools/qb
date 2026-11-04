@@ -1,0 +1,245 @@
+#!/usr/bin/env python3
+"""qb — Questboard developer CLI (stdlib only).
+
+Config: QB_URL / QB_TOKEN from the environment or from <repo>/.qb.env:
+    QB_URL=http://192.168.1.20:8787
+    QB_TOKEN=...
+
+  qb status                         devices, last sync, published versions
+  qb logs [-f] [-n 100] [--level warn] [--device desk] [--platform android] [--grep text]
+  qb state [collection]             dump synced records (debug)
+  qb pack                           build dist/questboard-extension-<v>.zip
+  qb publish extension [-m notes] [--bump]
+  qb publish android   [-m notes] [--bump]   (gradle assembleRelease, upload APK)
+  qb bump extension|android         increment version code
+  qb install                        install the extension locally (on the desktop)
+"""
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import zipfile
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+EXT = os.path.join(ROOT, "extension")
+ANDROID = os.path.join(ROOT, "android")
+UUID = "questboard@marci.local"
+EXT_FILES = ["metadata.json", "extension.js", "prefs.js", "dashboard.js", "pages.js", "calendarView.js",
+             "store.js", "util.js", "net.js", "eds.js", "eds-helper.js", "stylesheet.css"]
+
+
+def load_env():
+    env = {}
+    p = os.path.join(ROOT, ".qb.env")
+    if os.path.exists(p):
+        for line in open(p):
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                env[k.strip()] = v.strip().strip('"')
+    env.update({k: v for k, v in os.environ.items() if k.startswith("QB_")})
+    return env
+
+
+ENV = load_env()
+
+
+def api(method, path, body=None, raw=None, ctype="application/json", timeout=30):
+    url = ENV.get("QB_URL", "").rstrip("/")
+    if not url or not ENV.get("QB_TOKEN"):
+        sys.exit("Set QB_URL and QB_TOKEN (environment or .qb.env in the repo root).")
+    data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
+    req = urllib.request.Request(url + path, data=data, method=method)
+    req.add_header("Authorization", "Bearer " + ENV["QB_TOKEN"])
+    if data is not None:
+        req.add_header("Content-Type", ctype)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        sys.exit(f"HTTP {e.code}: {e.read().decode(errors='replace')[:300]}")
+    except urllib.error.URLError as e:
+        sys.exit(f"Cannot reach {url}: {e.reason}")
+
+
+def ago(ms, now):
+    if not ms:
+        return "never"
+    s = max(0, (now - ms) // 1000)
+    return f"{s}s ago" if s < 120 else f"{s // 60}m ago" if s < 7200 else f"{s // 3600}h ago"
+
+
+# ------------------------------------------------------------------ commands
+
+def cmd_status(a):
+    j = api("GET", "/api/devices")
+    now = j["serverTime"]
+    print("Devices:")
+    for d in j["devices"]:
+        print(f"  {(d['name'] or d['id'])[:28]:28} {d['platform']:9} v{d['version'] or '?':6} "
+              f"seen {ago(d['lastSeen'], now):9} synced {ago(d['lastSync'], now):9} {d['ip']}")
+    print("Published:")
+    for p, r in (j.get("releases") or {}).items():
+        print(f"  {p:9} " + (f"v{r['code']} ({r['name']}) {r['size'] // 1024} KiB — {r['notes']}" if r else "—"))
+
+
+LEVEL_COLORS = {"error": "\033[31m", "warn": "\033[33m", "debug": "\033[90m", "info": ""}
+
+
+def fmt_log(l, color):
+    t = time.strftime("%H:%M:%S", time.localtime(l["ts"] / 1000))
+    c = LEVEL_COLORS.get(l["level"], "") if color else ""
+    r = "\033[0m" if color and c else ""
+    ctx = f" {l['ctx']}" if l.get("ctx") and l["ctx"] != "null" else ""
+    return f"{c}{t} {l['platform'][:3]}/{(l['device'] or '')[:10]:10} {l['level'][:4].upper():4} [{l['tag']}] {l['msg']}{ctx}{r}"
+
+
+def cmd_logs(a):
+    q = {"limit": a.n}
+    for k in ("level", "device", "platform"):
+        if getattr(a, k):
+            q[k] = getattr(a, k)
+    if a.grep:
+        q["q"] = a.grep
+    color = sys.stdout.isatty()
+    after = 0
+    j = api("GET", "/api/logs?" + urllib.parse.urlencode(q))
+    for l in j["logs"]:
+        print(fmt_log(l, color))
+        after = max(after, l["id"])
+    while a.follow:
+        time.sleep(2)
+        q["after"] = after
+        q["limit"] = 500
+        for l in api("GET", "/api/logs?" + urllib.parse.urlencode(q))["logs"]:
+            print(fmt_log(l, color), flush=True)
+            after = max(after, l["id"])
+
+
+def cmd_state(a):
+    path = "/api/state" + (f"?coll={a.coll}" if a.coll else "")
+    print(json.dumps(api("GET", path), indent=1, ensure_ascii=False))
+
+
+def ext_version():
+    return json.load(open(os.path.join(EXT, "metadata.json")))["version"]
+
+
+def android_version():
+    g = open(os.path.join(ANDROID, "app", "build.gradle.kts")).read()
+    code = int(re.search(r"versionCode\s*=\s*(\d+)", g).group(1))
+    name = re.search(r'versionName\s*=\s*"([^"]+)"', g).group(1)
+    return code, name
+
+
+def cmd_bump(a):
+    if a.target == "extension":
+        p = os.path.join(EXT, "metadata.json")
+        m = json.load(open(p))
+        m["version"] = int(m["version"]) + 1
+        json.dump(m, open(p, "w"), indent=2)
+        open(p, "a").write("\n")
+        print(f"extension → v{m['version']}")
+        return m["version"]
+    p = os.path.join(ANDROID, "app", "build.gradle.kts")
+    g = open(p).read()
+    code, name = android_version()
+    parts = name.split(".")
+    parts[-1] = str(int(parts[-1]) + 1)
+    g = re.sub(r"versionCode\s*=\s*\d+", f"versionCode = {code + 1}", g)
+    g = re.sub(r'versionName\s*=\s*"[^"]+"', f'versionName = "{".".join(parts)}"', g)
+    open(p, "w").write(g)
+    print(f"android → {code + 1} ({'.'.join(parts)})")
+    return code + 1
+
+
+def cmd_pack(a=None):
+    v = ext_version()
+    os.makedirs(os.path.join(ROOT, "dist"), exist_ok=True)
+    subprocess.run(["glib-compile-schemas", os.path.join(EXT, "schemas")], check=True)
+    out = os.path.join(ROOT, "dist", f"questboard-extension-{v}.zip")
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in EXT_FILES:
+            z.write(os.path.join(EXT, f), f)
+        for d in ("schemas", "icons"):
+            for f in sorted(os.listdir(os.path.join(EXT, d))):
+                z.write(os.path.join(EXT, d, f), f"{d}/{f}")
+    print(f"packed {out} ({os.path.getsize(out) // 1024} KiB)")
+    return out, v
+
+
+def gradle_env():
+    env = dict(os.environ)
+    bt, d = None, ROOT
+    while d != os.path.dirname(d):  # search upwards for .buildtools (JDK + Android SDK)
+        if os.path.isdir(os.path.join(d, ".buildtools", "jdk")):
+            bt = os.path.join(d, ".buildtools")
+            break
+        d = os.path.dirname(d)
+    if bt:
+        env["JAVA_HOME"] = os.path.join(bt, "jdk")
+        env["ANDROID_HOME"] = os.path.join(bt, "android-sdk")
+        env["PATH"] = os.path.join(bt, "jdk", "bin") + os.pathsep + env["PATH"]
+    env.setdefault("GRADLE_OPTS", "-Xmx1g -Dorg.gradle.daemon=false")
+    return env
+
+
+def cmd_publish(a):
+    if a.bump:
+        cmd_bump(argparse.Namespace(target=a.target))
+    if a.target == "extension":
+        path, code = cmd_pack()
+        name = str(code)
+    else:
+        code, name = android_version()
+        subprocess.run(["./gradlew", "--no-daemon", "assembleRelease"], cwd=ANDROID, env=gradle_env(), check=True)
+        path = os.path.join(ANDROID, "app", "build", "outputs", "apk", "release", "app-release.apk")
+    data = open(path, "rb").read()
+    q = urllib.parse.urlencode({"code": code, "name": name, "notes": a.m or ""})
+    r = api("POST", f"/api/releases/{a.target}?{q}", raw=data, ctype="application/octet-stream", timeout=300)
+    print(f"published {a.target} v{r['code']} ({r['size'] // 1024} KiB, sha256 {r['sha256'][:12]}…)")
+
+
+def cmd_install(a):
+    path, _ = cmd_pack()
+    subprocess.run(["gnome-extensions", "install", "--force", path], check=True)
+    print("Installed. Log out and back in (Wayland) to load it, then: gnome-extensions enable " + UUID)
+
+
+def main():
+    p = argparse.ArgumentParser(prog="qb", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("status").set_defaults(fn=cmd_status)
+    l = sub.add_parser("logs")
+    l.add_argument("-f", "--follow", action="store_true")
+    l.add_argument("-n", type=int, default=100)
+    l.add_argument("--level")
+    l.add_argument("--device")
+    l.add_argument("--platform")
+    l.add_argument("--grep")
+    l.set_defaults(fn=cmd_logs)
+    s = sub.add_parser("state")
+    s.add_argument("coll", nargs="?")
+    s.set_defaults(fn=cmd_state)
+    sub.add_parser("pack").set_defaults(fn=cmd_pack)
+    sub.add_parser("install").set_defaults(fn=cmd_install)
+    b = sub.add_parser("bump")
+    b.add_argument("target", choices=["extension", "android"])
+    b.set_defaults(fn=cmd_bump)
+    pu = sub.add_parser("publish")
+    pu.add_argument("target", choices=["extension", "android"])
+    pu.add_argument("-m", help="release notes")
+    pu.add_argument("--bump", action="store_true", help="increment the version first")
+    pu.set_defaults(fn=cmd_publish)
+    a = p.parse_args()
+    a.fn(a)
+
+
+if __name__ == "__main__":
+    main()

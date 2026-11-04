@@ -198,3 +198,98 @@
 }
 .qb-panel-badge-icon { icon-size: 13px; }
 .qb-panel-badge-label { font-feature-settings: "tnum"; font-weight: bold; }
+
+/* ===================== v2 ===================== */
+.qb-iconlabel { spacing: 4px; }
+.qb-iconlabel .qb-icon { icon-size: 14px; }
+.qb-stat { font-size: 0.85em; color: rgba(255,255,255,0.8); }
+.qb-stat-btn { border-radius: 8px; padding: 2px 6px; }
+.qb-stat-btn:hover { background-color: rgba(255,255,255,0.1); }
+.qb-coins { color: #f8e45c; font-weight: bold; }
+.qb-streak { color: #ffa348; font-weight: bold; }
+.qb-sync.error .qb-icon { color: #ff7b72; }
+.qb-sync.off .qb-icon { color: rgba(255,255,255,0.35); }
+.qb-sync.syncing .qb-icon { color: #99c1f1; }
+
+/* tabs now sit above the left pane */
+.qb-left > .qb-tabs { margin-bottom: 2px; }
+.qb-tab { padding: 4px 6px; border-radius: 8px; }
+.qb-tab .qb-iconlabel { spacing: 5px; }
+.qb-tab:hover { background-color: rgba(255,255,255,0.08); }
+
+/* habit strip on the matrix page */
+.qb-habit-strip { spacing: 4px; padding: 2px 4px 4px 4px; }
+.qb-strip-label { font-size: 0.75em; font-weight: bold; color: rgba(255,255,255,0.5); padding-right: 4px; }
+.qb-strip-habit { border-radius: 99px; padding: 4px 8px; background-color: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.1); }
+.qb-strip-habit:hover { background-color: rgba(255,255,255,0.14); }
+.qb-strip-habit:checked, .qb-strip-habit.checked { background-color: rgba(46,194,126,0.35); border-color: #2ec27e; }
+.qb-strip-inner { spacing: 3px; }
+.qb-strip-streak { font-size: 0.72em; font-weight: bold; color: #ffa348; }
+
+/* habits page */
+.qb-habit-list, .qb-shop-list { spacing: 6px; }
+.qb-habit, .qb-reward { border-radius: 12px; padding: 8px 10px; spacing: 6px;
+  background-color: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.06); }
+.qb-habit.expanded, .qb-reward.expanded { background-color: rgba(255,255,255,0.08); }
+.qb-habit-top, .qb-reward-top { spacing: 10px; }
+.qb-habit-icon { border-radius: 99px; padding: 9px; background-color: rgba(255,255,255,0.08);
+  border: 2px solid rgba(255,255,255,0.15); }
+.qb-habit-icon .qb-icon { icon-size: 18px; }
+.qb-habit-icon:hover { border-color: #2ec27e; }
+.qb-habit-icon.checked { background-color: #2ec27e; border-color: #2ec27e; }
+.qb-habit-title, .qb-reward-title { font-weight: bold; font-size: 0.95em; }
+.qb-habit-sub { spacing: 10px; font-size: 0.8em; }
+.qb-habit-days { spacing: 3px; }
+.qb-habit-day { width: 22px; height: 22px; border-radius: 6px; background-color: rgba(255,255,255,0.06); }
+.qb-habit-day:hover { background-color: rgba(255,255,255,0.14); }
+.qb-habit-day.checked { background-color: rgba(46,194,126,0.75); }
+.qb-habit-day.today { border: 1px solid rgba(255,255,255,0.6); }
+.qb-habit-day.future { background-color: transparent; color: rgba(255,255,255,0.25); }
+.qb-habit-day-label { font-size: 0.7em; font-weight: bold; text-align: center; }
+.qb-add-box { spacing: 4px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.08); }
+.qb-icon-picker { spacing: 2px; padding: 2px 0; }
+.qb-pick-icon { border-radius: 6px; padding: 4px; }
+.qb-pick-icon:hover { background-color: rgba(255,255,255,0.12); }
+.qb-pick-icon.checked { background-color: rgba(53,132,228,0.55); }
+
+/* shop */
+.qb-shop-head { spacing: 8px; padding: 2px 2px 6px 2px; }
+.qb-balance { font-size: 1.35em; font-weight: 800; color: #f8e45c; }
+.qb-balance .qb-icon { icon-size: 20px; }
+.qb-reward-icon { border-radius: 10px; padding: 8px; background-color: rgba(248,228,92,0.15); }
+.qb-reward-icon .qb-icon { icon-size: 18px; color: #f8e45c; }
+.qb-cost { color: #f8e45c; font-weight: bold; }
+.qb-buy { background-color: rgba(229,165,10,0.55); font-weight: bold; }
+.qb-buy:hover { background-color: rgba(229,165,10,0.8); }
+.qb-disabled { color: rgba(255,255,255,0.35); background-color: rgba(255,255,255,0.04); }
+.qb-progress-track { height: 4px; border-radius: 2px; background-color: rgba(255,255,255,0.1); margin-top: 3px; }
+.qb-progress-fill { height: 4px; border-radius: 2px; background-color: #f8e45c; }
+.qb-history-row { spacing: 8px; padding: 2px 4px; font-size: 0.85em; }
+.qb-history-date { min-width: 46px; }
+.qb-earned { color: #f8e45c; }
+
+/* calendar editor */
+.qb-editor { spacing: 5px; padding: 8px; border-radius: 10px; background-color: rgba(53,132,228,0.16);
+  border: 1px solid rgba(53,132,228,0.35); }
+.qb-editor-title { font-weight: bold; font-size: 0.9em; }
+.qb-editor-date { font-size: 0.88em; font-weight: bold; }
+.qb-time { width: 64px; }
+.qb-seg { background-color: rgba(255,255,255,0.06); }
+.qb-seg:checked { background-color: rgba(53,132,228,0.6); }
+.qb-status { font-size: 0.78em; color: #8ff0a4; }
+.qb-status.error { color: #ff7b72; }
+.qb-danger-btn { background-color: rgba(229,83,75,0.6); }
+.qb-slot-layer { background-color: transparent; }
+.qb-allday-item { text-align: left; }
+
+/* due dates & sources */
+.qb-due { font-size: 0.72em; padding: 0 5px; border-radius: 4px; background-color: rgba(255,255,255,0.1); }
+.qb-due.soon { background-color: rgba(229,165,10,0.35); color: #f9f06b; }
+.qb-due.urgent { background-color: rgba(229,83,75,0.45); color: #ffbe6f; }
+.qb-src-icon { icon-size: 12px; color: rgba(255,255,255,0.45); }
+.qb-due-chip-inner { spacing: 5px; }
+.qb-due-chip { background-color: rgba(255,255,255,0.08); border-left: 3px solid #9a9996; }
+.qb-due-chip.qb-q1 { border-left-color: #e5534b; }
+.qb-due-chip.qb-q2 { border-left-color: #3584e4; }
+.qb-link-line { spacing: 6px; }
