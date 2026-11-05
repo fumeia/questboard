@@ -15,6 +15,16 @@ HOST=${HOST:-${TARGET#*@}}
 cd "$(dirname "$0")/.."
 REPO=$PWD
 
+# Tailscale address (100.64.0.0/10) in QB_PUBLIC_URL → listen only there (private).
+BIND=0.0.0.0
+if [[ "${QB_PUBLIC_URL:-}" =~ ^https?://(100\.[0-9]+\.[0-9]+\.[0-9]+) ]]; then
+  BIND=${BASH_REMATCH[1]}
+  echo "==> Tailscale address detected: the server will listen only on $BIND (not public)"
+elif [ -z "${QB_PUBLIC_URL:-}" ]; then
+  echo "!! No QB_PUBLIC_URL: port $PORT will be reachable from the internet over plain HTTP."
+  echo "   Fine for a quick test; for daily use set up Tailscale (see README, 'Server')."
+fi
+
 echo "==> 1/5 Copying server files to $TARGET:~/questboard-server"
 ssh "$TARGET" 'mkdir -p ~/questboard-server/data'
 scp -q server/qb_server.py server/notion_sync.py server/notion.json server/Dockerfile server/docker-compose.yml "$TARGET":questboard-server/
@@ -26,8 +36,9 @@ set -e
 cd ~/questboard-server
 touch .env && chmod 600 .env
 grep -q '^QB_TOKEN=' .env || echo "QB_TOKEN=$NEWTOKEN" >> .env
-sed -i '/^QB_UID=/d;/^QB_GID=/d;/^QB_PORT_HOST=/d' .env
+sed -i '/^QB_UID=/d;/^QB_GID=/d;/^QB_PORT_HOST=/d;/^QB_BIND=/d' .env
 echo "QB_UID=\$(id -u)" >> .env; echo "QB_GID=\$(id -g)" >> .env; echo "QB_PORT_HOST=$PORT" >> .env
+echo "QB_BIND=$BIND" >> .env
 REMOTE
 TOKEN=$(ssh "$TARGET" "grep '^QB_TOKEN=' ~/questboard-server/.env | cut -d= -f2-")
 

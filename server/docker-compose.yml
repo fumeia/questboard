@@ -6,6 +6,8 @@ services:
     restart: unless-stopped
     env_file: .env          # QB_TOKEN=...  (see .env.example)
     ports:
-      - "${QB_PORT_HOST:-8787}:8787"   # host port, set QB_PORT_HOST in .env if 8787 is taken
+      # QB_BIND: which server address listens (deploy-server.sh sets the Tailscale IP when used,
+      # so the port is NOT reachable from the internet — Docker ports bypass ufw).
+      - "${QB_BIND:-0.0.0.0}:${QB_PORT_HOST:-8787}:8787"
     volumes:
       - ./data:/data
