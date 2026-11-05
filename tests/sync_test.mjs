@@ -112,4 +112,14 @@ await sync(desk); await sync(phone); assert(phone.focusBlocks().some(b => b.ques
     const fut = desk.addQuest('Tomorrow thing', 'q1', {date: k(new Date(now + 86400000)), start: 600, duration: 60});
     desk.setDone(fut.id, true); assert.equal(desk.questTimeMs(desk.getQuest(fut.id)), 0, 'future slot not counted');
 }
+// Physics RPG bridge (physics-rpg/deploy/questboard_sync.py): quests + ledger kind "rpg" pushed by the server
+const xpR = phone.xp, noon = new Date(); noon.setHours(12, 0, 0, 0); const now = Date.now();
+await fetch(U+'/api/sync',{method:'POST',headers:H,body:JSON.stringify({device:'physics-rpg',platform:'physics-rpg',since:2**53,changes:[
+  {c:'quests',r:{id:'rpg.qm',updatedAt:now,title:'Physics RPG · Quantenmechanik',quadrant:'q2',done:false,createdAt:now,topic:'Quantenmechanik',source:'physics-rpg',link:'https://rpg.example.com'}},
+  {c:'ledger',r:{id:`rpg.qm.${k(noon)}`,updatedAt:now,at:noon.getTime(),amount:75,kind:'rpg',ref:'rpg.qm',note:'Physics RPG · Quantenmechanik'}}]})});
+await sync(phone); assert.equal(phone.xp, xpR + 75, 'game XP counts in Questboard');
+assert.equal(phone.getQuest('rpg.qm').topic, 'Quantenmechanik'); assert(phone.topics().includes('Quantenmechanik'));
+process.env.QB_DIR = process.env.T+'/rpgonly'; const only = new Store();
+only.applyRemote([{c:'ledger',r:{id:`rpg.qm.${k(noon)}`,updatedAt:now,at:noon.getTime(),amount:75,kind:'rpg'}}], 1, {});
+assert.equal(only.xp, 75); assert.equal(only.streak(), 1, 'a day with only game XP counts for the streak');
 console.log('level', levelInfo(desk.xp), 'balance', desk.balance, '\nALL SYNC TESTS PASSED');

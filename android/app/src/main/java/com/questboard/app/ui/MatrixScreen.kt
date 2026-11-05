@@ -196,7 +196,7 @@ fun QuestSheet(app: QuestboardApp, id: String, v: Int, now: Long, onClose: () ->
                 HSpace(14.dp); QbIcon("stopwatch", C.muted, 14.dp); HSpace(4.dp)
                 Muted(fmtSpent(s.questTimeMs(q, now)).ifEmpty { "no time yet" }, size = 13)
                 Spacer(Modifier.weight(1f))
-                if (q.str("link").isNotEmpty()) Pill("Open in Notion", C.card) {
+                if (q.str("link").isNotEmpty()) Pill(when (q.str("source")) { "physics-rpg" -> "Open Physics RPG"; "notion" -> "Open in Notion"; else -> "Open link" }, C.card) {
                     ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(q.str("link"))))
                 }
             }

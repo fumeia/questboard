@@ -276,6 +276,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
             when (l.str("kind")) {
                 "quest" -> { doneByDay[day] = (doneByDay[day] ?: 0) + 1; active += day }
                 "habit" -> active += day
+                "rpg" -> if (a > 0) active += day  // a day with Physics RPG XP counts for the streak too
             }
         }
         for (s in all("sessions")) {

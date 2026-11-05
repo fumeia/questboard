@@ -23,6 +23,7 @@ What's inside:
 | Schedule quests into time slots, due dates, reminders | ✔ | ✔ |
 | Timers: Pomodoro, break, stopwatch, countdown — linked to quests | ✔ (top-bar badge) | ✔ (live notification) |
 | Notion Studienplaner tasks as quests (two-way, XP by task type) | via server | via server |
+| Physics RPG XP as one quest per course (topic = course, counts for the streak) | via server | via server |
 | Remote logs, crash reports, self-update | ✔ | ✔ |
 
 ```
@@ -83,6 +84,17 @@ How it maps (change it by copying `server/notion.json` to `server/data/notion.js
 Ticking a quest in Questboard sets the Notion status to 🏆 Completed (unticking → Not started);
 renaming or changing the due date is written back too. Deleting a Notion quest in Questboard only hides it
 from Questboard — it never deletes anything in Notion. `Termin` and `Thema` entries are not imported.
+
+### 1c. Physics RPG XP (optional)
+
+If the Physics RPG (github.com/fumeia/physics-rpg) runs on the same server, its XP shows up here as three quests,
+"Physics RPG · Quantenmechanik / Festkörperphysik / Astrophysik", each with its course as topic, and the game's XP per
+course and day in the XP total (a day with game XP also keeps the streak alive). On the server:
+```
+sudo bash /opt/physics-rpg/deploy/questboard-setup.sh
+```
+It finds `~/questboard-server/.env` by itself (token + port), tests the connection and sends every 3 minutes. Topic names
+are in `/etc/physics-rpg/questboard.env`. Nothing in this server changes; the game talks to `/api/sync` like a device.
 
 ---
 
