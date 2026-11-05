@@ -122,6 +122,12 @@ assert.equal(phone.getQuest('rpg.qm').topic, 'Quantenmechanik'); assert(phone.to
 process.env.QB_DIR = process.env.T+'/rpgonly'; const only = new Store();
 only.applyRemote([{c:'ledger',r:{id:`rpg.qm.${k(noon)}`,updatedAt:now,at:noon.getTime(),amount:75,kind:'rpg'}}], 1, {});
 assert.equal(only.xp, 75); assert.equal(only.streak(), 1, 'a day with only game XP counts for the streak');
+// goals that an older server dropped are offered again until the server sends one back
+process.env.QB_DIR = process.env.T+'/oldsrv'; const os1 = new Store(); const lost = os1.addGoal('Lost goal');
+os1.applyRemote([], 0, os1.collectDirty().marks);            // pushed, "accepted", nothing came back (old server)
+assert(os1.collectDirty().changes.some(ch => ch.c === 'goals' && ch.r.id === lost.id), 'goal offered again');
+os1.applyRemote([{c:'goals', r: os1.getGoal(lost.id)}], 5, os1.collectDirty().marks);
+assert(!os1.collectDirty().changes.some(ch => ch.c === 'goals'), 'once the server has goals, only changed goals are sent');
 // Physics RPG progress counts toward the goal the quest is linked to (1 of 4 exercises = 25 % of that quest)
 const rg = only.addGoal('5.5 in QM 1'); const blatt = only.addQuest('Blatt 3', 'q2'); only.updateQuest(blatt.id, {goalId: rg.id}); only.setDone(blatt.id, true);
 only.applyRemote([{c:'quests',r:{id:'rpg.qm',updatedAt:Date.now()+5,title:'Physics RPG · Quantenmechanik',quadrant:'q2',done:false,createdAt:now,topic:'Quantenmechanik',source:'physics-rpg',goalId:rg.id,

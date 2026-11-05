@@ -114,6 +114,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
     var deviceId: String = "phone-" + uid(); private set
     var cursor: Long = 0; private set
     private var seeded = false
+    private var goalsOnServer = false  // see collectDirty
 
     private val _version = MutableStateFlow(0)
     /** Bumped on every change; Compose screens observe it. */
@@ -136,6 +137,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
             deviceId = d.optString("deviceId", deviceId)
             cursor = d.optLong("cursor", 0)
             seeded = d.optBoolean("seeded", false)
+            goalsOnServer = d.optBoolean("goalsOnServer", false)
             d.optJSONObject("colls")?.let { c ->
                 for (name in COLLECTIONS) c.optJSONObject(name)?.let { m ->
                     for (k in m.keys()) colls.getValue(name)[k] = m.getJSONObject(k)
@@ -155,7 +157,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
     fun save() {
         val c = JSONObject()
         for ((name, m) in colls) c.put(name, JSONObject().apply { for ((k, v) in m) put(k, v) })
-        val d = jobj("version" to 2, "deviceId" to deviceId, "cursor" to cursor, "seeded" to seeded, "colls" to c,
+        val d = jobj("version" to 2, "deviceId" to deviceId, "cursor" to cursor, "seeded" to seeded, "goalsOnServer" to goalsOnServer, "colls" to c,
             "dirty" to JSONObject(dirty as Map<*, *>), "timers" to JSONArray(timers.map { it.toJson() }),
             "reminded" to JSONObject(reminded as Map<*, *>))
         val tmp = File(file.parentFile, "data.json.tmp")
@@ -216,6 +218,9 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
     fun collectDirty(maxN: Int = 2000): Pair<JSONArray, Map<String, Long>> {
         val changes = JSONArray()
         val marks = mutableMapOf<String, Long>()
+        // Servers older than goals dropped goal records without a word, and the device then forgot they were unsent.
+        // Until the server has sent one goal back, every sync offers all goals again (a handful of records).
+        if (!goalsOnServer) for ((id, g) in colls.getValue("goals")) dirty["goals/$id"] = g.optLong("updatedAt")
         for ((key, at) in dirty.toMap()) {
             if (changes.length() >= maxN) break
             val c = key.substringBefore('/')
@@ -232,6 +237,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
     fun applyRemote(changes: JSONArray, newCursor: Long, marks: Map<String, Long>): Int {
         var touched = 0
         for ((k, at) in marks) if (dirty[k] == at) dirty.remove(k)
+        for (i in 0 until changes.length()) if (changes.getJSONObject(i).str("c") == "goals") goalsOnServer = true
         for (i in 0 until changes.length()) {
             val ch = changes.getJSONObject(i)
             val c = ch.str("c")
