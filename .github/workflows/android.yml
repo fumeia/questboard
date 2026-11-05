@@ -61,12 +61,3 @@ jobs:
             --data-binary @android/app/build/outputs/apk/release/app-release.apk \
             "$QB_URL/api/releases/android?code=$CODE&name=$NAME&notes=GitHub%20build%20${GITHUB_SHA::7}" > /dev/null
           echo "Published $NAME (code $CODE)"
-
-      # Short-lived copy on GitHub. Optional: the real delivery is your server, so a full
-      # artifact storage quota must not fail the build or block publishing.
-      - uses: actions/upload-artifact@v4
-        continue-on-error: true
-        with:
-          name: questboard-${{ env.NAME }}
-          path: android/app/build/outputs/apk/release/app-release.apk
-          retention-days: 2
