@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -154,8 +156,11 @@ class MainActivity : ComponentActivity() {
         val s = app.store
         val info = remember(v) { levelInfo(s.xp) }
         val sync by app.sync.status.collectAsState()
-        Row(Modifier.fillMaxWidth().background(C.surface).statusBarsPadding().padding(horizontal = 12.dp, vertical = 6.dp),
+        Row(Modifier.fillMaxWidth().background(C.surface).statusBarsPadding().padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically) {
+          // Stats take what's left and scroll sideways on narrow phones; the timer chip,
+          // sync and settings icons on the right always stay visible.
+          Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.clip(RoundedCornerShape(50)).background(C.accent).clickable { tab.value = "progress" }.padding(horizontal = 10.dp, vertical = 3.dp)) {
                 Text("Lv ${info.level}", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = C.text)
             }
@@ -177,9 +182,11 @@ class MainActivity : ComponentActivity() {
             HSpace(10.dp); QbIcon("check", C.muted, 14.dp); HSpace(2.dp); Muted("${s.completedOn()}", size = 13)
             val focus = fmtSpent(s.focusOn(now = now))
             if (focus.isNotEmpty()) { HSpace(8.dp); QbIcon("stopwatch", C.muted, 14.dp); HSpace(2.dp); Muted(focus, size = 13) }
-            Box(Modifier.weight(1f))
+            HSpace(6.dp)
+          }
             val t = s.runningTimers().firstOrNull()
             if (t != null) {
+                HSpace(4.dp)
                 Box(Modifier.clip(RoundedCornerShape(50)).background(C.green.copy(alpha = 0.22f)).clickable { tab.value = "timers" }
                     .padding(horizontal = 8.dp, vertical = 3.dp)) {
                     Text(fmtTimer(if (t.mode == "countdown") s.timerRemaining(t, now) else s.timerElapsed(t, now)),
