@@ -71,6 +71,17 @@ sed -i '/^QB_DOCKER_NETWORK=/d' .env
 REMOTE
 TOKEN=$(ssh "$TARGET" "grep '^QB_TOKEN=' ~/questboard-server/.env | cut -d= -f2-")
 
+# Optional Notion Studienplaner sync: ask once (hidden), store only on the server.
+if ! ssh "$TARGET" "grep -q '^NOTION_TOKEN=.' ~/questboard-server/.env" && [ -t 0 ]; then
+  echo
+  echo "Notion sync (optional): paste your Notion integration secret (starts with ntn_ or secret_)."
+  read -r -s -p "Notion secret, or Enter to skip: " NTOKEN; echo
+  if [ -n "$NTOKEN" ]; then
+    printf '%s\n' "$NTOKEN" | ssh "$TARGET" "cd ~/questboard-server && sed -i '/^NOTION_TOKEN=/d' .env && { printf 'NOTION_TOKEN='; cat; } >> .env"
+    echo "    saved on the server (~/questboard-server/.env)"
+  fi
+fi
+
 echo "==> 3/5 Starting the container (docker compose up -d --build)"
 if ! ssh "$TARGET" "cd ~/questboard-server && (docker compose version >/dev/null 2>&1 && docker compose $COMPOSE_FILES up -d --build || docker-compose $COMPOSE_FILES up -d --build)"; then
   echo
