@@ -478,3 +478,37 @@
 .qb-light .qb-allday-item.done { color: rgba(0,0,0,0.55); }
 .qb-dark .qb-linked { padding: 4px 6px; border-radius: 8px; background-color: rgba(46,194,126,0.15); }
 .qb-light .qb-linked { padding: 4px 6px; border-radius: 8px; background-color: rgba(46,194,126,0.15); }
+.qb-dark .qb-tab { padding: 4px 4px; font-size: 0.92em; }
+.qb-light .qb-tab { padding: 4px 4px; font-size: 0.92em; }
+.qb-dark .qb-tab .qb-iconlabel { spacing: 4px; }
+.qb-light .qb-tab .qb-iconlabel { spacing: 4px; }
+.qb-dark .qb-stats-body { spacing: 8px; padding: 2px 4px 10px 2px; }
+.qb-light .qb-stats-body { spacing: 8px; padding: 2px 4px 10px 2px; }
+.qb-dark .qb-tiles { spacing: 6px; }
+.qb-light .qb-tiles { spacing: 6px; }
+.qb-dark .qb-tile { border-radius: 10px; padding: 8px; spacing: 2px; background-color: rgba(255,255,255,0.06); }
+.qb-light .qb-tile { border-radius: 10px; padding: 8px; spacing: 2px; background-color: rgba(0,0,0,0.054); }
+.qb-dark .qb-tile-value { font-size: 1.15em; font-weight: 800; }
+.qb-light .qb-tile-value { font-size: 1.15em; font-weight: 800; }
+.qb-dark .qb-tile-value .qb-icon { icon-size: 14px; }
+.qb-light .qb-tile-value .qb-icon { icon-size: 14px; }
+.qb-dark .qb-chart { spacing: 6px; height: 120px; padding: 4px 2px; border-radius: 10px; background-color: rgba(255,255,255,0.04); }
+.qb-light .qb-chart { spacing: 6px; height: 120px; padding: 4px 2px; border-radius: 10px; background-color: rgba(0,0,0,0.036); }
+.qb-dark .qb-chart-col { spacing: 2px; }
+.qb-light .qb-chart-col { spacing: 2px; }
+.qb-dark .qb-chart-area { min-height: 80px; }
+.qb-light .qb-chart-area { min-height: 80px; }
+.qb-dark .qb-chart-bar { width: 16px; border-radius: 4px 4px 0 0; background-color: #3584e4; }
+.qb-light .qb-chart-bar { width: 16px; border-radius: 4px 4px 0 0; background-color: #3584e4; }
+.qb-dark .qb-chart-value { font-size: 0.65em; color: rgba(255,255,255,0.55); }
+.qb-light .qb-chart-value { font-size: 0.65em; color: rgba(0,0,0,0.605); }
+.qb-dark .qb-chart-day { font-size: 0.72em; font-weight: bold; color: rgba(255,255,255,0.6); }
+.qb-light .qb-chart-day { font-size: 0.72em; font-weight: bold; color: rgba(0,0,0,0.66); }
+.qb-dark .qb-topic-row { spacing: 3px; padding: 2px 0; }
+.qb-light .qb-topic-row { spacing: 3px; padding: 2px 0; }
+.qb-dark .qb-topic-name { font-weight: bold; font-size: 0.9em; }
+.qb-light .qb-topic-name { font-weight: bold; font-size: 0.9em; }
+.qb-dark .qb-topic-fill { height: 4px; border-radius: 2px; background-color: #3584e4; }
+.qb-light .qb-topic-fill { height: 4px; border-radius: 2px; background-color: #3584e4; }
+.qb-dark .qb-topic-entry { min-width: 120px; }
+.qb-light .qb-topic-entry { min-width: 120px; }

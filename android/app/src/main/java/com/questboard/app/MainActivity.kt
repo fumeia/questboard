@@ -6,6 +6,8 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -70,6 +72,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge() // draw behind the status bar; the header fills it (no grey strip)
         intent?.getStringExtra("tab")?.let { tab.value = it }
         handleSetupLink(intent)
         val perms = mutableListOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR)
@@ -125,9 +128,10 @@ class MainActivity : ComponentActivity() {
         }
         Scaffold(
             containerColor = C.bg,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             bottomBar = { if (tab.value != "settings") BottomNav() },
         ) { pad ->
-            Column(Modifier.fillMaxSize().padding(pad).statusBarsPadding()) {
+            Column(Modifier.fillMaxSize().padding(pad)) {
                 Header(v, now)
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     when (tab.value) {
@@ -148,7 +152,7 @@ class MainActivity : ComponentActivity() {
         val s = app.store
         val info = remember(v) { levelInfo(s.xp) }
         val sync by app.sync.status.collectAsState()
-        Row(Modifier.fillMaxWidth().background(C.surface).padding(horizontal = 12.dp, vertical = 6.dp),
+        Row(Modifier.fillMaxWidth().background(C.surface).statusBarsPadding().padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.clip(RoundedCornerShape(50)).background(C.accent).padding(horizontal = 10.dp, vertical = 3.dp)) {
                 Text("Lv ${info.level}", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = C.text)

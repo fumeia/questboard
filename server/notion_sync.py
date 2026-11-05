@@ -221,6 +221,8 @@ class NotionSync:
         })
         if not rec.get("quadrantManual"):
             rec["quadrant"] = self.quadrant(n)
+        if n["module"] and not rec.get("topic"):
+            rec["topic"] = n["module"]  # course = topic (for stats); a manual topic is kept
         was_done = bool(q and q.get("done"))
         rec["done"] = n["done"]
         if n["done"] and not was_done:

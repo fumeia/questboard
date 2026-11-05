@@ -37,8 +37,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // R8 shrinking took 10–15 min per build on small machines; a few MB larger APK is fine.
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = if (signing.getProperty("storeFile") != null) signingConfigs.getByName("release")
                             else signingConfigs.getByName("debug")

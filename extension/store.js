@@ -602,6 +602,82 @@ export class Store {
         return out;
     }
 
+    // ---- topics & stats ----------------------------------------------------
+
+    /** All topics in use (quests + past sessions), most recently used first. */
+    topics() {
+        const seen = new Map();
+        for (const q of this.quests)
+            if (q.topic)
+                seen.set(q.topic, Math.max(seen.get(q.topic) ?? 0, q.updatedAt ?? 0));
+        for (const s of this.all('sessions'))
+            if (s.topic)
+                seen.set(s.topic, Math.max(seen.get(s.topic) ?? 0, s.end ?? 0));
+        return [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([t]) => t);
+    }
+
+    /**
+     * Stats for the last `days` days (0 = all time).
+     * Session time is attributed to the topic stored on the session, falling back
+     * to the quest's current topic (older sessions), then "No topic".
+     */
+    stats(days = 7, now = new Date()) {
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const from = days > 0 ? dateKey(new Date(today.getFullYear(), today.getMonth(), today.getDate() - days + 1)) : '';
+        const inRange = key => !from || key >= from;
+        const byTopic = new Map();
+        const byQuest = new Map();
+        let focusMs = 0, pomodoros = 0;
+        for (const s of this.all('sessions')) {
+            if (s.kind === 'break' || !inRange(s.date))
+                continue;
+            focusMs += s.durationMs;
+            const q = s.questId ? this.data.colls.quests[s.questId] : null;
+            const topic = s.topic || (q && !q.deleted ? q.topic : null) || 'No topic';
+            byTopic.set(topic, (byTopic.get(topic) ?? 0) + s.durationMs);
+            if (s.questId)
+                byQuest.set(s.questId, (byQuest.get(s.questId) ?? 0) + s.durationMs);
+        }
+        let xp = 0, questsDone = 0, habitChecks = 0;
+        for (const l of this.all('ledger')) {
+            const key = dateKey(new Date(l.at));
+            if (!inRange(key))
+                continue;
+            if (l.amount > 0)
+                xp += l.amount;
+            if (l.kind === 'quest')
+                questsDone++;
+            else if (l.kind === 'habit')
+                habitChecks++;
+            else if (l.kind === 'pomodoro')
+                pomodoros++;
+        }
+        // last 7 days, always (for the bar chart)
+        const daily = [];
+        const d = this._derived();
+        for (let i = 6; i >= 0; i--) {
+            const day = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+            const k = dateKey(day);
+            daily.push({date: k, focusMs: d.focusByDay[k] ?? 0, done: d.doneByDay[k] ?? 0});
+        }
+        // best streak over all time
+        const daysSorted = [...d.activeDays].sort();
+        let best = 0, run = 0, prev = null;
+        for (const k of daysSorted) {
+            const cur = new Date(`${k}T12:00`);
+            run = prev && Math.round((cur - prev) / 86400000) === 1 ? run + 1 : 1;
+            best = Math.max(best, run);
+            prev = cur;
+        }
+        const titles = id => this.data.colls.quests[id]?.title ?? '(deleted quest)';
+        return {
+            focusMs, xp, questsDone, habitChecks, pomodoros,
+            byTopic: [...byTopic.entries()].map(([topic, ms]) => ({topic, ms})).sort((a, b) => b.ms - a.ms),
+            topQuests: [...byQuest.entries()].map(([id, ms]) => ({id, title: titles(id), ms})).sort((a, b) => b.ms - a.ms).slice(0, 5),
+            daily, streak: this.streak(), bestStreak: best,
+        };
+    }
+
     // ---- habits ----------------------------------------------------------
 
     habits() {
@@ -779,9 +855,10 @@ export class Store {
         t.startedAt = null;
         if (seg < 1000)
             return;
+        const q = t.questId ? this.getQuest(t.questId) : null;
         this._put('sessions', {
             id: uid(), questId: t.questId ?? null, kind: t.kind, start: now - seg, end: now,
-            durationMs: seg, date: dateKey(new Date(now - seg)),
+            durationMs: seg, date: dateKey(new Date(now - seg)), topic: q?.topic || null,
         });
     }
 

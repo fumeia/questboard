@@ -318,3 +318,22 @@
 .qb-block.linked { border-left-width: 4px; }
 .qb-allday-item.done { color: rgba(255,255,255,0.5); }
 .qb-linked { padding: 4px 6px; border-radius: 8px; background-color: rgba(46,194,126,0.15); }
+
+/* ===================== stats & topics ===================== */
+.qb-tab { padding: 4px 4px; font-size: 0.92em; }
+.qb-tab .qb-iconlabel { spacing: 4px; }
+.qb-stats-body { spacing: 8px; padding: 2px 4px 10px 2px; }
+.qb-tiles { spacing: 6px; }
+.qb-tile { border-radius: 10px; padding: 8px; spacing: 2px; background-color: rgba(255,255,255,0.06); }
+.qb-tile-value { font-size: 1.15em; font-weight: 800; }
+.qb-tile-value .qb-icon { icon-size: 14px; }
+.qb-chart { spacing: 6px; height: 120px; padding: 4px 2px; border-radius: 10px; background-color: rgba(255,255,255,0.04); }
+.qb-chart-col { spacing: 2px; }
+.qb-chart-area { min-height: 80px; }
+.qb-chart-bar { width: 16px; border-radius: 4px 4px 0 0; background-color: #3584e4; }
+.qb-chart-value { font-size: 0.65em; color: rgba(255,255,255,0.55); }
+.qb-chart-day { font-size: 0.72em; font-weight: bold; color: rgba(255,255,255,0.6); }
+.qb-topic-row { spacing: 3px; padding: 2px 0; }
+.qb-topic-name { font-weight: bold; font-size: 0.9em; }
+.qb-topic-fill { height: 4px; border-radius: 2px; background-color: #3584e4; }
+.qb-topic-entry { min-width: 120px; }

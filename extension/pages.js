@@ -354,3 +354,102 @@ export class ShopPage {
         return card;
     }
 }
+
+// ------------------------------------------------------------------ stats
+
+const fmtDur = ms => {
+    const m = Math.round(ms / 60000);
+    const h = Math.floor(m / 60);
+    return h ? `${h}h ${String(m % 60).padStart(2, '0')}m` : `${m}m`;
+};
+
+export class StatsPage {
+    constructor(dash) {
+        this._dash = dash;
+        this._store = dash.ctx.store;
+        this._range = 7;
+        this.actor = box({vertical: true, style_class: 'qb-page', x_expand: true, y_expand: true});
+        this._body = box({vertical: true, style_class: 'qb-stats-body'});
+        this.actor.add_child(scroll(this._body, {y_expand: true}));
+    }
+
+    render() {
+        const b = this._body;
+        clearChildren(b);
+        const st = this._store.stats(this._range);
+
+        const seg = box({style_class: 'qb-actions-row'});
+        for (const [v, t] of [[7, '7 days'], [30, '30 days'], [0, 'All time']]) {
+            const btn = textButton(t, 'qb-small qb-seg', () => {
+                this._range = v;
+                this.render();
+            });
+            if (v === this._range)
+                btn.add_style_pseudo_class('checked');
+            seg.add_child(btn);
+        }
+        b.add_child(seg);
+
+        const tiles = box({style_class: 'qb-tiles'});
+        const tile = (ic, value, caption) => {
+            const t = box({vertical: true, style_class: 'qb-tile', x_expand: true});
+            t.add_child(iconLabel(ic, value, 'qb-tile-value'));
+            t.add_child(label(caption, 'qb-muted'));
+            tiles.add_child(t);
+        };
+        tile('qb-stopwatch', fmtDur(st.focusMs), 'focus');
+        tile('qb-sparkle', String(st.xp), 'XP earned');
+        tile('qb-check', String(st.questsDone), 'quests done');
+        tile('qb-target', String(st.pomodoros), 'pomodoros');
+        tile('qb-flame', `${st.streak}d`, `streak · best ${st.bestStreak}d`);
+        b.add_child(tiles);
+
+        // last 7 days focus chart
+        b.add_child(label('Focus, last 7 days', 'qb-section-title'));
+        const chart = box({style_class: 'qb-chart'});
+        const max = Math.max(1, ...st.daily.map(d => d.focusMs));
+        for (const d of st.daily) {
+            const col = box({vertical: true, style_class: 'qb-chart-col', x_expand: true});
+            col.add_child(label(d.focusMs ? fmtDur(d.focusMs) : '', 'qb-chart-value', {x_align: Clutter.ActorAlign.CENTER}));
+            const area = new St.Widget({style_class: 'qb-chart-area', y_expand: true, x_expand: true,
+                layout_manager: new Clutter.BinLayout()});
+            const bar = new St.Widget({style_class: 'qb-chart-bar', x_align: Clutter.ActorAlign.CENTER, y_align: Clutter.ActorAlign.END,
+                height: Math.max(2, Math.round(80 * d.focusMs / max))});
+            area.add_child(bar);
+            col.add_child(area);
+            const day = new Date(`${d.date}T12:00`);
+            col.add_child(label(fmtDate(day, '%a').slice(0, 2), 'qb-chart-day', {x_align: Clutter.ActorAlign.CENTER}));
+            chart.add_child(col);
+        }
+        b.add_child(chart);
+
+        // per topic
+        b.add_child(label('Time per topic', 'qb-section-title'));
+        if (!st.byTopic.length)
+            b.add_child(label('No focus time yet. Give quests a topic (quest details) and start a timer.', 'qb-empty', {wrap: true}));
+        const total = Math.max(1, st.byTopic.reduce((a, t) => a + t.ms, 0));
+        for (const t of st.byTopic) {
+            const row = box({vertical: true, style_class: 'qb-topic-row'});
+            const top = box({});
+            top.add_child(label(t.topic, t.topic === 'No topic' ? 'qb-muted' : 'qb-topic-name', {ellipsize: true, x_expand: true}));
+            top.add_child(label(`${fmtDur(t.ms)} · ${Math.round(100 * t.ms / total)} %`, 'qb-muted'));
+            row.add_child(top);
+            const track = new St.Widget({style_class: 'qb-progress-track', x_expand: true});
+            const fill = new St.Widget({style_class: 'qb-topic-fill'});
+            track.add_child(fill);
+            track.connect('notify::width', () => fill.set_width(Math.round(track.width * t.ms / total)));
+            row.add_child(track);
+            b.add_child(row);
+        }
+
+        if (st.topQuests.length) {
+            b.add_child(label('Most time spent on', 'qb-section-title'));
+            for (const q of st.topQuests) {
+                const row = box({style_class: 'qb-history-row'});
+                row.add_child(label(q.title, 'qb-history-title', {ellipsize: true, x_expand: true}));
+                row.add_child(label(fmtDur(q.ms), 'qb-muted'));
+                b.add_child(row);
+            }
+        }
+    }
+}

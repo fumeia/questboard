@@ -48,4 +48,11 @@ assert(!desk.getQuest(g.id).done); assert.equal(desk.xp, xp0 + 20, 'unticking a 
 desk.setDone(g.id, true);
 assert.equal(desk.xp, xp0 + 30 + 30 + 15, 'ticking the group ticks the rest');
 await sync(desk); await sync(phone); assert.equal(phone.getQuest(g.id).steps.length, 3); assert.equal(phone.xp, desk.xp);
+// topics & stats: session time goes to the quest's topic
+const tq = desk.addQuest('Read chapter 3', 'q2'); desk.updateQuest(tq.id, {topic: 'Analysis II'});
+desk.toggleQuestTimer(tq.id); desk.runningTimers()[0].startedAt -= 30 * 60000; desk.toggleQuestTimer(tq.id);
+const st = desk.stats(7);
+assert(st.byTopic.find(t => t.topic === 'Analysis II').ms >= 30 * 60000 - 100, 'topic time');
+assert(desk.topics().includes('Analysis II'));
+assert.equal(st.daily.length, 7);
 console.log('level', levelInfo(desk.xp), 'balance', desk.balance, '\nALL SYNC TESTS PASSED');

@@ -9,7 +9,7 @@ import Gio from 'gi://Gio';
 import St from 'gi://St';
 
 import {CalendarView} from './calendarView.js';
-import {HabitStrip, HabitsPage, ShopPage} from './pages.js';
+import {HabitStrip, HabitsPage, ShopPage, StatsPage} from './pages.js';
 import {QUADRANTS, STEP_XP, dueInDays, groupBonus, levelInfo, questXp} from './store.js';
 import {
     addDays, box, button, clearChildren, dateKey, entry, fmtDate, fmtMinutes, fmtSpent, fmtTimer, gicon, icon, iconButton, iconLabel,
@@ -23,6 +23,7 @@ const TABS = [
     ['quests', 'qb-list', 'Quests'],
     ['timers', 'qb-stopwatch', 'Timers'],
     ['shop', 'qb-shop', 'Shop'],
+    ['stats', 'qb-trophy', 'Stats'],
 ];
 
 export class Dashboard {
@@ -53,12 +54,14 @@ export class Dashboard {
         this.habitStrip = new HabitStrip(this);
         this.habitsPage = new HabitsPage(this);
         this.shopPage = new ShopPage(this);
+        this.statsPage = new StatsPage(this);
         this._pages = {
             matrix: this._buildMatrixPage(),
             habits: this.habitsPage.actor,
             quests: this._buildQuestsPage(),
             timers: this._buildTimersPage(),
             shop: this.shopPage.actor,
+            stats: this.statsPage.actor,
             detail: this._buildDetailPage(),
         };
         for (const p of Object.values(this._pages))
@@ -428,6 +431,21 @@ export class Dashboard {
         }
         b.add_child(qr);
 
+        // topic / course
+        b.add_child(label('Topic / course', 'qb-section-title'));
+        const tr0 = box({style_class: 'qb-actions-row qb-wrap-row'});
+        for (const t of this._store.topics().slice(0, 6)) {
+            const btn = textButton(t, 'qb-small qb-seg', () => this._store.updateQuest(q.id, {topic: q.topic === t ? null : t}));
+            if (q.topic === t)
+                btn.add_style_pseudo_class('checked');
+            tr0.add_child(btn);
+        }
+        tr0.add_child(entry(q.topic ? 'Rename / new topic' : 'New topic — Enter', 'qb-topic-entry', txt => {
+            if (txt.trim())
+                this._store.updateQuest(q.id, {topic: txt.trim()});
+        }, {x_expand: true}));
+        b.add_child(tr0);
+
         // steps
         b.add_child(label(steps.length ? `Steps · ${this._store.stepProgress(q).done}/${steps.length}` : 'Steps (turn this into a group)', 'qb-section-title'));
         const sl = box({vertical: true, style_class: 'qb-steps qb-steps-edit'});
@@ -702,6 +720,7 @@ export class Dashboard {
         case 'timers': this._renderTimersPage(now); break;
         case 'shop': this.shopPage.render(); break;
         case 'detail': this._renderDetail(now); break;
+        case 'stats': this.statsPage.render(); break;
         }
         this.calendar.render();
     }
