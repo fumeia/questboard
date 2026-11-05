@@ -13,7 +13,7 @@ Config: run `qb login` once — saves QB_URL / QB_TOKEN to ~/.config/questboard/
   qb publish extension [-m notes] [--bump]
   qb publish android   [-m notes] [--bump]   (gradle assembleRelease, upload APK)
   qb bump extension|android         increment version code
-  qb install                        install the extension locally (on the desktop)
+  qb install                        install the extension here AND publish a newer phone APK to the server
 """
 import argparse
 import json
@@ -249,10 +249,45 @@ def enable_via_gsettings():
     subprocess.run(["gsettings", "set", "org.gnome.shell", "disable-user-extensions", "false"], check=True)
 
 
+APK = os.path.join(ANDROID, "app", "build", "outputs", "apk", "release", "app-release.apk")
+APK_VERSION = os.path.join(os.path.dirname(APK), "version.json")
+
+
+def publish_phone_if_newer():
+    """Upload the built APK when it's newer than what the server has (phone then offers it)."""
+    if not (os.path.exists(APK) and os.path.exists(APK_VERSION)):
+        print("phone: no APK built yet — skipped")
+        return
+    if not (ENV.get("QB_URL") and ENV.get("QB_TOKEN")):
+        print("phone: not logged in (run: qb login) — skipped")
+        return
+    v = json.load(open(APK_VERSION))
+    try:
+        req = urllib.request.Request(ENV["QB_URL"].rstrip("/") + "/api/releases/android/latest")
+        req.add_header("Authorization", "Bearer " + ENV["QB_TOKEN"])
+        with urllib.request.urlopen(req, timeout=20) as r:
+            server_code = json.loads(r.read()).get("code", 0)
+    except urllib.error.HTTPError as e:
+        server_code = 0 if e.code == 404 else None
+    except Exception as e:  # noqa: BLE001
+        print(f"phone: server not reachable ({e}) — skipped")
+        return
+    if server_code is None:
+        print("phone: server error — skipped")
+        return
+    if v["code"] <= server_code:
+        print(f"phone: already up to date on the server (v{server_code})")
+        return
+    q = urllib.parse.urlencode({"code": v["code"], "name": v["name"], "notes": "via qb install"})
+    r = api("POST", f"/api/releases/android?{q}", raw=open(APK, "rb").read(), ctype="application/octet-stream", timeout=300)
+    print(f"phone: published {v['name']} (code {r['code']}) — the app will offer the update")
+
+
 def cmd_install(a):
     path, _ = cmd_pack()
     subprocess.run(["gnome-extensions", "install", "--force", path], check=True)
     enable_via_gsettings()
+    publish_phone_if_newer()
     print("Installed and enabled. It loads at the next GNOME Shell start:")
     print("  - log out and back in, or")
     print("  - try it now in a window: dbus-run-session -- gnome-shell --devkit   (GNOME 45-48: --nested --wayland)")
