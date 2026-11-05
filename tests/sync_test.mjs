@@ -122,6 +122,12 @@ assert.equal(phone.getQuest('rpg.qm').topic, 'Quantenmechanik'); assert(phone.to
 process.env.QB_DIR = process.env.T+'/rpgonly'; const only = new Store();
 only.applyRemote([{c:'ledger',r:{id:`rpg.qm.${k(noon)}`,updatedAt:now,at:noon.getTime(),amount:75,kind:'rpg'}}], 1, {});
 assert.equal(only.xp, 75); assert.equal(only.streak(), 1, 'a day with only game XP counts for the streak');
+// Physics RPG progress counts toward the goal the quest is linked to (1 of 4 exercises = 25 % of that quest)
+const rg = only.addGoal('5.5 in QM 1'); const blatt = only.addQuest('Blatt 3', 'q2'); only.updateQuest(blatt.id, {goalId: rg.id}); only.setDone(blatt.id, true);
+only.applyRemote([{c:'quests',r:{id:'rpg.qm',updatedAt:Date.now()+5,title:'Physics RPG · Quantenmechanik',quadrant:'q2',done:false,createdAt:now,topic:'Quantenmechanik',source:'physics-rpg',goalId:rg.id,
+  progress:{done:1,total:4,text:'1/4 exercises · 0/1 rooms cleared'}}}], 2, {});
+assert.equal(only.extProgress(only.getQuest('rpg.qm')).text, '1/4 exercises · 0/1 rooms cleared');
+assert.equal(only.goalProgress(rg.id).total, 2); assert.equal(only.goalProgress(rg.id).frac, (1 + 0.25) / 2, 'goal share includes the game progress');
 // goal deadlines, pace and the weekly review
 {
     const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;

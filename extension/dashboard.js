@@ -321,6 +321,10 @@ export class Dashboard {
         }
         if (this._store.getGoal(q.goalId))
             row.add_child(icon('qb-star', 'qb-icon qb-src-icon'));
+        const ext = this._store.extProgress(q);
+        if (ext)
+            row.add_child(label(`${ext.done}/${ext.total}`, ext.done === ext.total ? 'qb-progress-pill full' : 'qb-progress-pill',
+                {y_align: Clutter.ActorAlign.CENTER}));
         if (q.source === 'notion')
             row.add_child(icon('qb-book', 'qb-icon qb-src-icon'));
         if (q.gcal)
@@ -438,6 +442,10 @@ export class Dashboard {
             {text: q.title, x_expand: true}));
         b.add_child(titleRow);
         b.add_child(entry('Notes (Enter to save)', '', t => this._store.updateQuest(q.id, {notes: t}), {text: q.notes ?? '', x_expand: true}));
+
+        const ext = this._store.extProgress(q);
+        if (ext)
+            b.add_child(label(ext.text, 'qb-muted', {x_align: Clutter.ActorAlign.START}));
 
         // XP line
         const xpRow = box({style_class: 'qb-actions-row'});

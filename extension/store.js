@@ -602,6 +602,15 @@ export class Store {
         return {done: steps.filter(s => s.done).length, total: steps.length};
     }
 
+    /** Progress reported by an integration (Physics RPG: exercises done of all), or null. */
+    extProgress(q) {
+        const p = q?.progress;
+        if (!p || !(p.total > 0) || (q.steps ?? []).length)
+            return null;
+        const done = Math.max(0, Math.min(p.total, p.done | 0));
+        return {done, total: p.total, frac: done / p.total, text: p.text || `${done}/${p.total}`};
+    }
+
     /** Link one step to a long-term goal (null = unlink). */
     setStepGoal(questId, stepId, goalId) {
         const q = this.getQuest(questId);
@@ -758,10 +767,10 @@ export class Store {
         const {quests, steps} = this.goalItems(goalId);
         let done = 0, credit = 0, ms = 0;
         for (const q of quests) {
-            const pr = this.stepProgress(q);
+            const pr = this.stepProgress(q), ext = this.extProgress(q);
             if (q.done)
                 done++;
-            credit += q.done ? 1 : pr.total ? pr.done / pr.total : 0;
+            credit += q.done ? 1 : pr.total ? pr.done / pr.total : ext ? ext.frac : 0;
             ms += this.questTimeMs(q, now);
         }
         for (const {quest, step} of steps) {

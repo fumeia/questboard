@@ -123,6 +123,12 @@ fun QuestRow(q: JSONObject, timeLabel: String, running: Boolean, onOpen: () -> U
             Text("$d/${steps.length()}", fontSize = 11.sp, fontWeight = FontWeight.Bold,
                 color = if (d == steps.length()) C.green else C.muted)
         }
+        val ext = q.optJSONObject("progress")  // integration progress (Physics RPG: exercises done of all)
+        if ((steps == null || steps.length() == 0) && ext != null && ext.optInt("total") > 0) {
+            val d = ext.optInt("done").coerceIn(0, ext.optInt("total"))
+            Text("$d/${ext.optInt("total")}", fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                color = if (d == ext.optInt("total")) C.green else C.muted)
+        }
         if (q.str("source") == "notion") QbIcon("book", C.muted, 12.dp)
         val dd = if (done) null else dueInDays(q)
         if (dd != null) {

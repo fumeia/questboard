@@ -559,6 +559,16 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         changed()
     }
 
+    data class ExtProgress(val done: Int, val total: Int, val frac: Float, val text: String)
+
+    /** Progress reported by an integration (Physics RPG: exercises done of all), or null. Same rule as extension/store.js. */
+    fun extProgress(q: JSONObject): ExtProgress? {
+        val p = q.optJSONObject("progress") ?: return null
+        val total = p.optInt("total"); if (total <= 0 || steps(q).isNotEmpty()) return null
+        val done = p.optInt("done").coerceIn(0, total)
+        return ExtProgress(done, total, done.toFloat() / total, p.optString("text").ifEmpty { "$done/$total" })
+    }
+
     data class GoalItems(val quests: List<JSONObject>, val steps: List<Pair<JSONObject, JSONObject>>)
     data class GoalProgress(val done: Int, val total: Int, val frac: Float, val ms: Long)
 
@@ -580,7 +590,8 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         for (q in items.quests) {
             val st = steps(q)
             if (q.bool("done")) done++
-            share += if (q.bool("done")) 1f else if (st.isNotEmpty()) st.count { it.bool("done") }.toFloat() / st.size else 0f
+            share += if (q.bool("done")) 1f else if (st.isNotEmpty()) st.count { it.bool("done") }.toFloat() / st.size
+                     else extProgress(q)?.frac ?: 0f
             ms += questTimeMs(q, now)
         }
         for ((q, st) in items.steps) {

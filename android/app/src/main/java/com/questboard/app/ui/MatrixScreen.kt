@@ -190,6 +190,9 @@ fun QuestSheet(app: QuestboardApp, id: String, v: Int, now: Long, onClose: () ->
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { saveText() }))
             }
             OutlinedTextField(notes, { notes = it }, placeholder = { Text("Notes") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+            s.extProgress(q)?.let { p ->
+                Text(p.text, color = C.text, fontSize = 13.sp)
+            }
             StepsEditor(app, q, now)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 QbIcon("sparkle", C.gold, 14.dp); HSpace(4.dp); Muted("${questXp(q)} XP", size = 13)
