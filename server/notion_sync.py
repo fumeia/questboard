@@ -202,8 +202,8 @@ class NotionSync:
                 writes.append(("quests", {"id": rid, "deleted": True, "updatedAt": max(now, q["updatedAt"] + 1)}))
             self.save_state(pid, n["edited"], now, ignored=1)
             return
-        if not q and n["done"] and n["due"] and days_until(n["due"]["date"]) < -self.cfg["skip_done_older_than_days"]:
-            return  # old finished work: don't flood the board
+        if not q and n["done"]:
+            return  # already finished before Questboard saw it: no quest, no XP
         if not q and not self.module_allowed(n):
             return  # only current-semester modules (module Status = Aktuell)
 

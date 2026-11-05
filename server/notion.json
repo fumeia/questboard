@@ -38,7 +38,6 @@
     "Präsentation": 60,
     "Übungsblatt": 40
   },
-  "skip_done_older_than_days": 21,
   "module_status_prop": "Status",
   "module_statuses": [
     "Aktuell"
