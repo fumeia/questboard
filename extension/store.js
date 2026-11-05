@@ -346,8 +346,8 @@ export class Store {
             if (l.kind === 'quest') {
                 doneByDay[day] = (doneByDay[day] ?? 0) + 1;
                 activeDays.add(day);
-            } else if (l.kind === 'habit') {
-                activeDays.add(day);
+            } else if (l.kind === 'habit' || (l.kind === 'rpg' && l.amount > 0)) {
+                activeDays.add(day);  // a day with Physics RPG XP counts for the streak too
             }
         }
         for (const s of this.all('sessions')) {
