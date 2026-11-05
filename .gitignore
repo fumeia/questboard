@@ -13,3 +13,4 @@ keystore.properties
 tests/build/
 nested.log
 phone-setup-link.txt
+android/.kotlin/

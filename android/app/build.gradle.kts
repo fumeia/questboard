@@ -57,6 +57,8 @@ android {
         buildConfig = true
     }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+    // The release lint pass takes 15+ min on small machines and isn't needed to ship.
+    lint { checkReleaseBuilds = false }
 }
 
 dependencies {
