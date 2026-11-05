@@ -95,4 +95,21 @@ ft.startedAt -= 25 * 60000; desk.tick();
 fb = desk.focusBlocks().filter(b => b.questId === fq.id); assert.equal(fb.length, 1); assert(!fb[0].live);
 assert.equal(fb[0].title, 'Calendar focus'); assert(Math.abs(fb[0].end - fb[0].start - 25 * 60000) < 100);
 await sync(desk); await sync(phone); assert(phone.focusBlocks().some(b => b.questId === fq.id), 'focus block synced');
+// ticking a quest that had a time slot counts the slot (minus timer time inside it) for quest + goal
+{
+    const now = Date.now(); const s0 = new Date(now - 2 * 3600000); s0.setSeconds(0, 0);
+    const sg2 = desk.addGoal('Slot goal');
+    const sq = desk.addQuest('Lecture', 'q2', {date: k(s0), start: s0.getHours() * 60 + s0.getMinutes(), duration: 60}, {goalId: sg2.id});
+    desk.toggleQuestTimer(sq.id); desk.runningTimers()[0].startedAt = s0.getTime() + 40 * 60000; desk.toggleQuestTimer(sq.id);
+    const before = desk.questTimeMs(desk.getQuest(sq.id));
+    desk.setDone(sq.id, true);
+    const added = desk.questTimeMs(desk.getQuest(sq.id)) - before;
+    assert(Math.abs(added - 40 * 60000) < 1000, `slot adds only the untracked part (${added})`);
+    assert(Math.abs(desk.goalProgress(sg2.id).ms - desk.questTimeMs(desk.getQuest(sq.id))) < 1000, 'goal gets it too');
+    await sync(desk); await sync(phone);
+    assert(Math.abs(phone.questTimeMs(phone.getQuest(sq.id)) - desk.questTimeMs(desk.getQuest(sq.id))) < 1000, 'slot time synced');
+    phone.setDone(sq.id, false); assert(Math.abs(phone.questTimeMs(phone.getQuest(sq.id)) - before) < 1000, 'unticking removes it');
+    const fut = desk.addQuest('Tomorrow thing', 'q1', {date: k(new Date(now + 86400000)), start: 600, duration: 60});
+    desk.setDone(fut.id, true); assert.equal(desk.questTimeMs(desk.getQuest(fut.id)), 0, 'future slot not counted');
+}
 console.log('level', levelInfo(desk.xp), 'balance', desk.balance, '\nALL SYNC TESTS PASSED');

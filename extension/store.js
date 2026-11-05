@@ -462,6 +462,7 @@ export class Store {
             for (const t of this.data.timers)
                 if (t.questId === id && t.startedAt)
                     this._credit(t, now);
+            this._creditSlot(q, now);
             // Ticking a group ticks all its steps (each pays STEP_XP) and adds the group bonus.
             const steps = (q.steps ?? []).map(st => ({...st}));
             for (const st of steps) {
@@ -477,8 +478,51 @@ export class Store {
         } else {
             this._patch('quests', id, {done: false, doneAt: null});
             this._del('ledger', `quest.${id}`);
+            this._del('sessions', `slot.${id}`);
         }
         this._changed();
+    }
+
+    /** The window a quest was planned for: its time slot, else its linked calendar event. {start, end} in ms. */
+    questSlot(q) {
+        let date, start, end;
+        if (q?.scheduled?.date) {
+            date = q.scheduled.date;
+            start = q.scheduled.start;
+            end = start + (q.scheduled.duration ?? 60);
+        } else if (q?.eventTime && q.due?.date) {
+            date = q.due.date;
+            start = q.eventTime.start;
+            end = q.eventTime.end > start ? q.eventTime.end : q.eventTime.end + 24 * 60;
+        } else {
+            return null;
+        }
+        const [y, m, d] = date.split('-').map(Number);
+        const at = min => new Date(y, m - 1, d, 0, min).getTime();
+        return {start: at(start), end: at(end)};
+    }
+
+    /**
+     * Ticking off a quest with a time slot counts the slot as time spent (so it also
+     * reaches the quest's goal and stats): only the part already passed, minus time
+     * timers already tracked inside it. Deterministic id → two devices can't double it.
+     */
+    _creditSlot(q, now) {
+        const slot = this.questSlot(q);
+        if (!slot)
+            return;
+        const start = slot.start, end = Math.min(slot.end, now);
+        if (end <= start)
+            return;
+        let covered = 0;
+        for (const s of this.all('sessions'))
+            if (s.questId === q.id && s.id !== `slot.${q.id}`)
+                covered += Math.max(0, Math.min(s.end, end) - Math.max(s.start, start));
+        const ms = end - start - covered;
+        if (ms < 60000)
+            return;
+        this._put('sessions', {id: `slot.${q.id}`, questId: q.id, stepId: null, kind: 'slot', start, end, durationMs: ms,
+            date: dateKey(new Date(start)), topic: q.topic || null});
     }
 
     // ---- steps (a quest with steps is a "group") ---------------------------

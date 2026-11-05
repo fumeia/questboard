@@ -351,6 +351,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         val now = System.currentTimeMillis()
         if (done) {
             for (t in timers) if (t.questId == id && t.startedAt != null) credit(t, now)
+            creditSlot(q, now)
             val steps = q.optJSONArray("steps") ?: JSONArray()
             val newSteps = JSONArray()
             for (i in 0 until steps.length()) {
@@ -370,8 +371,44 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         } else {
             patch("quests", id, mapOf("done" to false, "doneAt" to null))
             del("ledger", "quest.$id")
+            del("sessions", "slot.$id")
         }
         changed()
+    }
+
+    /** The window a quest was planned for: its time slot, else its linked calendar event (ms). */
+    fun questSlot(q: JSONObject): Pair<Long, Long>? {
+        val sc = q.optJSONObject("scheduled")
+        val et = q.optJSONObject("eventTime")
+        val dueDate = q.optJSONObject("due")?.str("date").orEmpty()
+        val (date, start, end) = when {
+            sc != null && sc.str("date").isNotEmpty() -> Triple(sc.str("date"), sc.optInt("start"), sc.optInt("start") + sc.optInt("duration", 60))
+            et != null && dueDate.isNotEmpty() -> {
+                val a = et.optInt("start"); val b = et.optInt("end")
+                Triple(dueDate, a, if (b > a) b else b + 24 * 60)
+            }
+            else -> return null
+        }
+        val base = LocalDate.parse(date).atStartOfDay(ZoneId.systemDefault())
+        return base.plusMinutes(start.toLong()).toInstant().toEpochMilli() to base.plusMinutes(end.toLong()).toInstant().toEpochMilli()
+    }
+
+    /**
+     * Ticking off a quest with a time slot counts the slot as time spent (quest, goal, stats):
+     * only the part already passed, minus time timers already tracked inside it.
+     */
+    private fun creditSlot(q: JSONObject, now: Long) {
+        val (start, slotEnd) = questSlot(q) ?: return
+        val end = min(slotEnd, now)
+        if (end <= start) return
+        val id = q.str("id")
+        var covered = 0L
+        for (s in all("sessions")) if (s.str("questId") == id && s.str("id") != "slot.$id")
+            covered += max(0L, min(s.optLong("end"), end) - max(s.optLong("start"), start))
+        val ms = end - start - covered
+        if (ms < 60_000) return
+        put("sessions", jobj("id" to "slot.$id", "questId" to id, "stepId" to null, "kind" to "slot", "start" to start, "end" to end,
+            "durationMs" to ms, "date" to dateKeyOf(start), "topic" to q.str("topic").ifEmpty { null }))
     }
 
     // ---- steps (a quest with steps is a "group") ----------------------------

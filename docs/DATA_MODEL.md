@@ -12,7 +12,7 @@ opaquely. Every record: `{id, updatedAt (ms), deleted?: true, ...}`. Merge = **l
 | `checkins` | habitId, date | id = `<habitId>.<YYYY-MM-DD>` (deterministic → no duplicates) |
 | `rewards` | title, cost, icon, repeatable, redeemedAt? | defaults: ids `reward.*`, `updatedAt: 1` |
 | `ledger` | at, amount (±), kind `quest/step/habit/pomodoro/goal/purchase/bonus`, ref, note | ids: `quest.<questId>`, `step.<questId>.<stepId>`, `habit.<checkinId>`, `pomo.<timerId>.<ms>`, `goal.<goalId>`, `buy.<uid>` |
-| `sessions` | questId, stepId?, kind, start, end, durationMs, date, topic? | one per timer run segment; `stepId` = a step's own timer |
+| `sessions` | questId, stepId?, kind, start, end, durationMs, date, topic? | one per timer run segment; `stepId` = a step's own timer. `slot.<questId>` (kind `slot`): ticking a quest off credits the passed part of its time slot / linked event not already covered by timer sessions |
 
 Derived, never stored: **XP** = sum of positive ledger amounts (→ level: XP to reach level L = 50·L·(L−1));
 **coins** = sum of all ledger amounts; **streak** = consecutive days with a quest completion or habit
