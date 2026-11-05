@@ -2,9 +2,10 @@ services:
   questboard:
     build: .
     container_name: questboard
+    user: "${QB_UID:-1000}:${QB_GID:-1000}"   # owner of ./data (set by tools/deploy-server.sh)
     restart: unless-stopped
     env_file: .env          # QB_TOKEN=...  (see .env.example)
     ports:
-      - "8787:8787"         # change the left side if 8787 is taken
+      - "${QB_PORT_HOST:-8787}:8787"   # host port, set QB_PORT_HOST in .env if 8787 is taken
     volumes:
       - ./data:/data
