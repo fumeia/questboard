@@ -281,6 +281,11 @@ export class Store {
     collectDirty(max = 2000) {
         const changes = [];
         const marks = {};
+        // Servers older than goals dropped goal records without a word, and the device then forgot they were unsent.
+        // Until the server has sent one goal back, every sync offers all goals again (a handful of records).
+        if (!this.data.goalsOnServer)
+            for (const g of Object.values(this.data.colls.goals ?? {}))
+                this.data.dirty[`goals/${g.id}`] = g.updatedAt;
         for (const [key, at] of Object.entries(this.data.dirty)) {
             if (changes.length >= max)
                 break;
@@ -304,6 +309,8 @@ export class Store {
         for (const [key, at] of Object.entries(marks))
             if (this.data.dirty[key] === at)
                 delete this.data.dirty[key];
+        if (changes.some(ch => ch.c === 'goals'))
+            this.data.goalsOnServer = true;
         for (const {c, r} of changes) {
             if (!this.data.colls[c] || !r?.id)
                 continue;
