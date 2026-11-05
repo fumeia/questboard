@@ -46,13 +46,6 @@ jobs:
           NAME=$(grep -oE 'versionName *= *"[^"]+"' app/build.gradle.kts | cut -d'"' -f2)
           echo "CODE=$CODE" >> "$GITHUB_ENV"; echo "NAME=$NAME" >> "$GITHUB_ENV"
 
-      # Short-lived copy on GitHub (the real delivery is your server). Keeps artifact storage small.
-      - uses: actions/upload-artifact@v4
-        with:
-          name: questboard-${{ env.NAME }}
-          path: android/app/build/outputs/apk/release/app-release.apk
-          retention-days: 2
-
       - name: Publish to your Questboard server
         env:
           QB_URL: ${{ secrets.QB_URL }}
@@ -61,7 +54,8 @@ jobs:
         run: |
           LATEST=$(curl -sf -H "Authorization: Bearer $QB_TOKEN" "$QB_URL/api/releases/android/latest" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("code",0))' || echo 0)
           if [ "$CODE" -le "$LATEST" ]; then
-            echo "Server already has code $LATEST — bump versionCode (tools/qb bump android) to publish."; exit 0
+            echo "::warning::Not published: the server already has code $LATEST. Bump versionCode (tools/qb bump android) and push again."
+            exit 0
           fi
           curl -sf -H "Authorization: Bearer $QB_TOKEN" -H "Content-Type: application/octet-stream" \
             --data-binary @android/app/build/outputs/apk/release/app-release.apk \

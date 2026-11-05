@@ -19,9 +19,11 @@ export const QUADRANTS = [
     {id: 'q4', title: 'Eliminate', short: 'Drop', subtitle: 'Not urgent · Not important', xp: 5},
 ];
 
-export const COLLECTIONS = ['quests', 'habits', 'checkins', 'rewards', 'ledger', 'sessions'];
+export const COLLECTIONS = ['quests', 'habits', 'checkins', 'rewards', 'ledger', 'sessions', 'goals'];
 export const POMODORO_XP = 10;
 export const STEP_XP = 10;
+/** Reaching a long-term goal. */
+export const GOAL_XP = 100;
 /** Finishing every step of a group pays the quest XP plus this share as a bonus. */
 export const GROUP_BONUS = 0.5;
 export const groupBonus = q => Math.max(10, Math.round(questXp(q) * GROUP_BONUS));
@@ -337,7 +339,7 @@ export class Store {
         if (this._cache)
             return this._cache;
         let lifetime = 0, balance = 0;
-        const doneByDay = {}, activeDays = new Set(), questMs = {}, focusByDay = {};
+        const doneByDay = {}, activeDays = new Set(), questMs = {}, stepMs = {}, focusByDay = {};
         for (const l of this.all('ledger')) {
             balance += l.amount;
             if (l.amount > 0)
@@ -353,11 +355,15 @@ export class Store {
         for (const s of this.all('sessions')) {
             if (s.questId)
                 questMs[s.questId] = (questMs[s.questId] ?? 0) + s.durationMs;
+            if (s.questId && s.stepId) {
+                const k = `${s.questId}/${s.stepId}`;
+                stepMs[k] = (stepMs[k] ?? 0) + s.durationMs;
+            }
             if (s.kind !== 'break')
                 focusByDay[s.date] = (focusByDay[s.date] ?? 0) + s.durationMs;
         }
         const checkins = new Set(this.all('checkins').map(c => c.id));
-        this._cache = {lifetime, balance, doneByDay, activeDays, questMs, focusByDay, checkins};
+        this._cache = {lifetime, balance, doneByDay, activeDays, questMs, stepMs, focusByDay, checkins};
         return this._cache;
     }
 
@@ -456,6 +462,7 @@ export class Store {
             for (const t of this.data.timers)
                 if (t.questId === id && t.startedAt)
                     this._credit(t, now);
+            this._creditSlot(q, now);
             // Ticking a group ticks all its steps (each pays STEP_XP) and adds the group bonus.
             const steps = (q.steps ?? []).map(st => ({...st}));
             for (const st of steps) {
@@ -471,8 +478,51 @@ export class Store {
         } else {
             this._patch('quests', id, {done: false, doneAt: null});
             this._del('ledger', `quest.${id}`);
+            this._del('sessions', `slot.${id}`);
         }
         this._changed();
+    }
+
+    /** The window a quest was planned for: its time slot, else its linked calendar event. {start, end} in ms. */
+    questSlot(q) {
+        let date, start, end;
+        if (q?.scheduled?.date) {
+            date = q.scheduled.date;
+            start = q.scheduled.start;
+            end = start + (q.scheduled.duration ?? 60);
+        } else if (q?.eventTime && q.due?.date) {
+            date = q.due.date;
+            start = q.eventTime.start;
+            end = q.eventTime.end > start ? q.eventTime.end : q.eventTime.end + 24 * 60;
+        } else {
+            return null;
+        }
+        const [y, m, d] = date.split('-').map(Number);
+        const at = min => new Date(y, m - 1, d, 0, min).getTime();
+        return {start: at(start), end: at(end)};
+    }
+
+    /**
+     * Ticking off a quest with a time slot counts the slot as time spent (so it also
+     * reaches the quest's goal and stats): only the part already passed, minus time
+     * timers already tracked inside it. Deterministic id → two devices can't double it.
+     */
+    _creditSlot(q, now) {
+        const slot = this.questSlot(q);
+        if (!slot)
+            return;
+        const start = slot.start, end = Math.min(slot.end, now);
+        if (end <= start)
+            return;
+        let covered = 0;
+        for (const s of this.all('sessions'))
+            if (s.questId === q.id && s.id !== `slot.${q.id}`)
+                covered += Math.max(0, Math.min(s.end, end) - Math.max(s.start, start));
+        const ms = end - start - covered;
+        if (ms < 60000)
+            return;
+        this._put('sessions', {id: `slot.${q.id}`, questId: q.id, stepId: null, kind: 'slot', start, end, durationMs: ms,
+            date: dateKey(new Date(start)), topic: q.topic || null});
     }
 
     // ---- steps (a quest with steps is a "group") ---------------------------
@@ -533,6 +583,16 @@ export class Store {
         const q = this.getQuest(questId);
         if (!q)
             return;
+        const now = Date.now();
+        for (const t of this.data.timers) {
+            if (t.questId !== questId || t.stepId !== stepId)
+                continue;
+            if (t.startedAt) {
+                this._credit(t, now);
+                t.startedAt = now; // keeps running, now for the quest as a whole
+            }
+            t.stepId = null;
+        }
         this._patch('quests', questId, {steps: (q.steps ?? []).filter(st => st.id !== stepId)});
         this._changed(); // XP already earned for that step stays
     }
@@ -540,6 +600,187 @@ export class Store {
     stepProgress(q) {
         const steps = q?.steps ?? [];
         return {done: steps.filter(s => s.done).length, total: steps.length};
+    }
+
+    /** Progress reported by an integration (Physics RPG: exercises done of all), or null. */
+    extProgress(q) {
+        const p = q?.progress;
+        if (!p || !(p.total > 0) || (q.steps ?? []).length)
+            return null;
+        const done = Math.max(0, Math.min(p.total, p.done | 0));
+        return {done, total: p.total, frac: done / p.total, text: p.text || `${done}/${p.total}`};
+    }
+
+    /** Link one step to a long-term goal (null = unlink). */
+    setStepGoal(questId, stepId, goalId) {
+        const q = this.getQuest(questId);
+        if (!q)
+            return;
+        this._patch('quests', questId, {steps: (q.steps ?? []).map(st => (st.id === stepId ? {...st, goalId: goalId || null} : st))});
+        this._changed();
+    }
+
+    /** Extend a running countdown (e.g. "+5 min" from the notification). */
+    extendTimer(id, ms) {
+        const t = this.getTimer(id);
+        if (!t || t.mode !== 'countdown' || !(ms > 0))
+            return;
+        t.durationMs += ms;
+        t.finished = false;
+        this._changed();
+    }
+
+    stepTimeMs(questId, stepId, now = Date.now()) {
+        let ms = this._derived().stepMs[`${questId}/${stepId}`] ?? 0;
+        for (const t of this.data.timers)
+            if (t.questId === questId && t.stepId === stepId && t.startedAt)
+                ms += this._liveSegment(t, now);
+        return ms;
+    }
+
+    isStepRunning(questId, stepId) {
+        return this.data.timers.some(t => t.questId === questId && t.stepId === stepId && t.startedAt);
+    }
+
+    /** Play/pause the Pomodoro of one step (resumes a paused one, otherwise starts a new one). */
+    toggleStepPomodoro(questId, stepId, minutes) {
+        const mine = this.data.timers.filter(t => t.questId === questId && t.stepId === stepId);
+        const running = mine.find(t => t.startedAt);
+        if (running) {
+            this.pauseTimer(running.id);
+            return running;
+        }
+        const paused = mine.find(t => t.kind === 'pomodoro' && !t.finished && t.elapsedMs < t.durationMs);
+        if (paused) {
+            this.startTimer(paused.id);
+            return paused;
+        }
+        return this.startPomodoro(questId, minutes, stepId);
+    }
+
+    // ---- goals (long-term; quests and single steps link to them) ------------
+
+    goals() {
+        return this.all('goals').sort((a, b) => (!!a.done - !!b.done) || (a.createdAt ?? 0) - (b.createdAt ?? 0));
+    }
+
+    getGoal(id) {
+        return id ? this.get('goals', id) : null;
+    }
+
+    addGoal(title, extra = {}) {
+        title = (title ?? '').trim();
+        if (!title)
+            return null;
+        const g = this._put('goals', {id: uid(), title, notes: '', icon: 'target', targetDate: null, done: false, doneAt: null,
+            createdAt: Date.now(), ...extra});
+        this._changed();
+        return g;
+    }
+
+    updateGoal(id, patch) {
+        if (this._patch('goals', id, patch))
+            this._changed();
+    }
+
+    /** Linked quests/steps keep their goalId; it simply no longer resolves. */
+    deleteGoal(id) {
+        this._del('goals', id); // XP for reaching it stays
+        this._changed();
+    }
+
+    /**
+     * Deadline pace for a goal with a targetDate (YYYY-MM-DD): how much of the time from
+     * creation to the deadline has passed, versus how much of the goal is done.
+     * Returns null without a deadline.
+     */
+    goalPace(id, now = Date.now()) {
+        const g = this.getGoal(id);
+        if (!g?.targetDate)
+            return null;
+        const [y, m, d] = g.targetDate.split('-').map(Number);
+        const end = new Date(y, m - 1, d + 1).getTime(); // end of the target day
+        const start = g.createdAt ?? now;
+        // deadline already passed when the goal was made → the whole window is due
+        const expected = end <= start ? 1 : Math.min(1, Math.max(0, (now - start) / (end - start)));
+        const frac = this.goalProgress(id, now).frac;
+        const daysLeft = Math.floor((end - now) / DAY_MS);
+        return {daysLeft, expected, frac, onTrack: g.done || frac >= expected - 0.1};
+    }
+
+    /** Last 7 days against the 7 before: focus time, quests done, goals reached, streak. */
+    weekReview(now = new Date()) {
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const key = n => dateKey(new Date(today.getFullYear(), today.getMonth(), today.getDate() - n));
+        const thisFrom = key(6), prevFrom = key(13), prevTo = key(7);
+        const r = {focusThis: 0, focusPrev: 0, questsThis: 0, questsPrev: 0, goalsReached: 0, streak: this.streak()};
+        const bucket = k => (k >= thisFrom ? 'this' : k >= prevFrom && k <= prevTo ? 'prev' : null);
+        for (const s of this.all('sessions')) {
+            if (s.kind === 'break') continue;
+            const b = bucket(s.date);
+            if (b === 'this') r.focusThis += s.durationMs; else if (b === 'prev') r.focusPrev += s.durationMs;
+        }
+        for (const l of this.all('ledger')) {
+            if (l.kind !== 'quest') continue;
+            const b = bucket(dateKey(new Date(l.at)));
+            if (b === 'this') r.questsThis++; else if (b === 'prev') r.questsPrev++;
+        }
+        for (const g of this.all('goals'))
+            if (g.doneAt && bucket(dateKey(new Date(g.doneAt))) === 'this') r.goalsReached++;
+        return r;
+    }
+
+    setGoalDone(id, done) {
+        const g = this.getGoal(id);
+        if (!g || !!g.done === done)
+            return;
+        const now = Date.now();
+        this._patch('goals', id, {done, doneAt: done ? now : null});
+        if (done)
+            this._put('ledger', {id: `goal.${id}`, at: now, amount: GOAL_XP, kind: 'goal', ref: id, note: g.title});
+        else
+            this._del('ledger', `goal.${id}`);
+        this._changed();
+    }
+
+    /**
+     * What counts toward a goal: quests linked as a whole, plus single steps linked
+     * from quests that are not themselves linked to it.
+     */
+    goalItems(goalId) {
+        const quests = [], steps = [];
+        for (const q of this.quests) {
+            if (q.goalId === goalId) {
+                quests.push(q);
+                continue;
+            }
+            for (const st of q.steps ?? [])
+                if (st.goalId === goalId)
+                    steps.push({quest: q, step: st});
+        }
+        quests.sort((a, b) => (!!a.done - !!b.done) || a.createdAt - b.createdAt);
+        return {quests, steps};
+    }
+
+    /** {done, total, frac, ms}: an open quest with steps counts by its finished share. */
+    goalProgress(goalId, now = Date.now()) {
+        const {quests, steps} = this.goalItems(goalId);
+        let done = 0, credit = 0, ms = 0;
+        for (const q of quests) {
+            const pr = this.stepProgress(q), ext = this.extProgress(q);
+            if (q.done)
+                done++;
+            credit += q.done ? 1 : pr.total ? pr.done / pr.total : ext ? ext.frac : 0;
+            ms += this.questTimeMs(q, now);
+        }
+        for (const {quest, step} of steps) {
+            if (step.done)
+                done++;
+            credit += step.done ? 1 : 0;
+            ms += this.stepTimeMs(quest.id, step.id, now);
+        }
+        const total = quests.length + steps.length;
+        return {done, total, frac: total ? credit / total : 0, ms};
     }
 
     deleteQuest(id) {
@@ -550,6 +791,7 @@ export class Store {
             if (t.startedAt)
                 this._credit(t, now);
             t.questId = null;
+            t.stepId = null;
         }
         this._del('quests', id); // earned XP stays in the ledger
         this._changed();
@@ -559,7 +801,7 @@ export class Store {
         for (const q of this.quests.filter(x => x.done)) {
             for (const t of this.data.timers)
                 if (t.questId === q.id)
-                    t.questId = null;
+                    t.questId = t.stepId = null;
             this._del('quests', q.id);
         }
         this._changed();
@@ -627,6 +869,7 @@ export class Store {
         const inRange = key => !from || key >= from;
         const byTopic = new Map();
         const byQuest = new Map();
+        const byGoal = new Map();
         let focusMs = 0, pomodoros = 0;
         for (const s of this.all('sessions')) {
             if (s.kind === 'break' || !inRange(s.date))
@@ -637,6 +880,9 @@ export class Store {
             byTopic.set(topic, (byTopic.get(topic) ?? 0) + s.durationMs);
             if (s.questId)
                 byQuest.set(s.questId, (byQuest.get(s.questId) ?? 0) + s.durationMs);
+            const gid = this._sessionGoal(s, q);
+            if (gid)
+                byGoal.set(gid, (byGoal.get(gid) ?? 0) + s.durationMs);
         }
         let xp = 0, questsDone = 0, habitChecks = 0;
         for (const l of this.all('ledger')) {
@@ -673,9 +919,20 @@ export class Store {
         return {
             focusMs, xp, questsDone, habitChecks, pomodoros,
             byTopic: [...byTopic.entries()].map(([topic, ms]) => ({topic, ms})).sort((a, b) => b.ms - a.ms),
+            byGoal: [...byGoal.entries()].map(([id, ms]) => ({id, title: this.data.colls.goals[id]?.title ?? '(deleted goal)', ms}))
+                .sort((a, b) => b.ms - a.ms),
             topQuests: [...byQuest.entries()].map(([id, ms]) => ({id, title: titles(id), ms})).sort((a, b) => b.ms - a.ms).slice(0, 5),
             daily, streak: this.streak(), bestStreak: best,
         };
+    }
+
+    /** Goal a session counts toward: its quest's goal, else its step's goal (only live goals). */
+    _sessionGoal(s, q) {
+        if (!q || q.deleted)
+            return null;
+        const st = s.stepId ? (q.steps ?? []).find(x => x.id === s.stepId) : null;
+        const gid = q.goalId || st?.goalId;
+        return gid && this.getGoal(gid) ? gid : null;
     }
 
     // ---- habits ----------------------------------------------------------
@@ -857,17 +1114,17 @@ export class Store {
             return;
         const q = t.questId ? this.getQuest(t.questId) : null;
         this._put('sessions', {
-            id: uid(), questId: t.questId ?? null, kind: t.kind, start: now - seg, end: now,
+            id: uid(), questId: t.questId ?? null, stepId: t.stepId ?? null, kind: t.kind, start: now - seg, end: now,
             durationMs: seg, date: dateKey(new Date(now - seg)), topic: q?.topic || null,
         });
     }
 
-    addTimer({label, mode = 'countdown', kind = 'custom', durationMs = 25 * 60000, questId = null, start = true}) {
+    addTimer({label, mode = 'countdown', kind = 'custom', durationMs = 25 * 60000, questId = null, stepId = null, start = true}) {
         const q = questId ? this.getQuest(questId) : null;
         const t = {
             id: uid(),
-            label: label || q?.title || (mode === 'stopwatch' ? 'Stopwatch' : 'Timer'),
-            mode, kind, durationMs, questId,
+            label: label || this.timerLabel(questId, stepId) || (mode === 'stopwatch' ? 'Stopwatch' : 'Timer'),
+            mode, kind, durationMs, questId, stepId: q ? stepId : null,
             elapsedMs: 0,
             startedAt: start ? Date.now() : null,
             finished: false,
@@ -934,6 +1191,7 @@ export class Store {
             t.startedAt = Date.now();
         }
         t.questId = questId;
+        t.stepId = null;
         const q = questId ? this.getQuest(questId) : null;
         if (q && (t.kind === 'stopwatch' || t.kind === 'custom'))
             t.label = q.title;
@@ -946,16 +1204,47 @@ export class Store {
             this.pauseTimer(running.id);
             return;
         }
-        const existing = this.data.timers.find(t => t.questId === questId && t.mode === 'stopwatch');
+        const existing = this.data.timers.find(t => t.questId === questId && !t.stepId && t.mode === 'stopwatch');
         if (existing)
             this.startTimer(existing.id);
         else
             this.addTimer({mode: 'stopwatch', kind: 'stopwatch', questId, durationMs: 0});
     }
 
-    startPomodoro(questId, minutes) {
-        return this.addTimer({mode: 'countdown', kind: 'pomodoro', durationMs: minutes * 60000, questId,
-            label: questId ? this.getQuest(questId)?.title : 'Focus'});
+    /** "Quest" or "Quest › Step". */
+    timerLabel(questId, stepId = null) {
+        const q = questId ? this.getQuest(questId) : null;
+        if (!q)
+            return null;
+        const st = stepId ? (q.steps ?? []).find(x => x.id === stepId) : null;
+        return st ? `${q.title} › ${st.title}` : q.title;
+    }
+
+    startPomodoro(questId, minutes, stepId = null) {
+        return this.addTimer({mode: 'countdown', kind: 'pomodoro', durationMs: minutes * 60000, questId, stepId,
+            label: this.timerLabel(questId, stepId) ?? 'Focus'});
+    }
+
+    /**
+     * Pomodoro time on one day, for the calendar: finished or paused segments (synced
+     * sessions) plus running Pomodoros, drawn from their start to their planned end.
+     */
+    focusBlocks(key = dateKey(), now = Date.now()) {
+        void now;
+        const out = [];
+        for (const s of this.all('sessions')) {
+            if (s.kind !== 'pomodoro' || s.date !== key)
+                continue;
+            out.push({id: s.id, title: this.timerLabel(s.questId, s.stepId) ?? 'Focus', questId: s.questId ?? null,
+                start: s.start, end: s.end, live: false});
+        }
+        for (const t of this.data.timers) {
+            if (t.kind !== 'pomodoro' || !t.startedAt || dateKey(new Date(t.startedAt)) !== key)
+                continue;
+            out.push({id: t.id, title: t.label, questId: t.questId ?? null,
+                start: t.startedAt, end: t.startedAt + Math.max(0, t.durationMs - t.elapsedMs), live: true});
+        }
+        return out.sort((a, b) => a.start - b.start);
     }
 
     startBreak(minutes) {

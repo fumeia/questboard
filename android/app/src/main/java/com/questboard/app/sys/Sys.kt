@@ -2,6 +2,8 @@ package com.questboard.app.sys
 
 import android.Manifest
 import android.app.AlarmManager
+import android.app.Notification
+import android.app.Service
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -11,15 +13,21 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
 import android.provider.CalendarContract
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.questboard.app.MainActivity
 import com.questboard.app.QuestboardApp
 import com.questboard.app.R
 import com.questboard.app.data.Timer
 import com.questboard.app.data.str
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.TimeZone
@@ -30,7 +38,11 @@ class Notifier(private val ctx: Context) {
     private val nm = ctx.getSystemService(NotificationManager::class.java)
 
     init {
-        nm.createNotificationChannel(NotificationChannel(CH_TIMER, "Running timer", NotificationManager.IMPORTANCE_LOW))
+        // The old low-importance channel got hidden/collapsed on some phones; the live one is default + silent.
+        nm.deleteNotificationChannel(CH_TIMER_OLD)
+        nm.createNotificationChannel(NotificationChannel(CH_TIMER, "Running timer", NotificationManager.IMPORTANCE_DEFAULT).apply {
+            setSound(null, null); enableVibration(false); setShowBadge(false)
+        })
         nm.createNotificationChannel(NotificationChannel(CH_ALERT, "Timers & reminders", NotificationManager.IMPORTANCE_HIGH))
         nm.createNotificationChannel(NotificationChannel(CH_MISC, "Updates", NotificationManager.IMPORTANCE_DEFAULT))
     }
@@ -42,20 +54,49 @@ class Notifier(private val ctx: Context) {
         Intent(ctx, MainActivity::class.java).putExtra("tab", tab).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
 
-    /** Ongoing notification with a system-drawn countdown/stopwatch — no app process needed to tick. */
-    fun showRunning(t: Timer?, endsAt: Long?, startedEquivalent: Long?) {
-        if (!can()) return
-        if (t == null) { nm.cancel(ID_RUNNING); return }
+    /**
+     * Live timer notification: quest (› step) as title, "12 of 25 min · 13 min left", a progress
+     * bar and a system-drawn countdown that keeps ticking between our refreshes.
+     */
+    fun runningNotification(app: QuestboardApp, t: Timer, now: Long = System.currentTimeMillis()): Notification {
+        val s = app.store
+        val elapsed = s.timerElapsed(t, now)
+        val kind = when (t.kind) { "pomodoro" -> "Pomodoro"; "break" -> "Break"; "stopwatch" -> "Stopwatch"; else -> "Countdown" }
+        fun action(code: String, act: String) = PendingIntent.getBroadcast(ctx, t.id.hashCode() * 31 + code.hashCode(),
+            Intent(ctx, AlarmReceiver::class.java).setAction(act).putExtra("id", t.id),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val b = NotificationCompat.Builder(ctx, CH_TIMER)
             .setSmallIcon(R.drawable.qb_stopwatch)
             .setContentTitle(t.label)
-            .setContentText(when (t.kind) { "pomodoro" -> "Focus session"; "break" -> "Break"; "stopwatch" -> "Stopwatch"; else -> "Countdown" })
             .setOngoing(true).setOnlyAlertOnce(true).setSilent(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .setContentIntent(openApp("timers"))
-            .setUsesChronometer(true)
-        if (endsAt != null) { b.setWhen(endsAt); b.setChronometerCountDown(true) } else b.setWhen(startedEquivalent ?: System.currentTimeMillis())
-        nm.notify(ID_RUNNING, b.build())
+            .setUsesChronometer(true).setShowWhen(true)
+            .addAction(0, "Pause", action("pause", Alarms.ACTION_PAUSE))
+            .addAction(0, "+5 min", action("extend", Alarms.ACTION_EXTEND))
+            .addAction(0, "Stop", action("stop", Alarms.ACTION_STOP))
+        if (t.mode == "countdown" && t.durationMs > 0) {
+            val left = s.timerRemaining(t, now)
+            val passedMin = elapsed / 60_000
+            val leftMin = (left + 59_999) / 60_000
+            val ends = Instant.ofEpochMilli(now + left).atZone(ZoneId.systemDefault()).toLocalTime()
+            b.setContentText("$kind · $passedMin of ${t.durationMs / 60_000} min · $leftMin min left")
+                .setSubText("ends %02d:%02d".format(ends.hour, ends.minute))
+                .setProgress(1000, (1000 * elapsed / t.durationMs).toInt().coerceIn(0, 1000), false)
+                .setWhen(now + left).setChronometerCountDown(true)
+        } else {
+            b.setContentText("$kind · ${elapsed / 60_000} min").setWhen(now - elapsed)
+        }
+        return b.build()
     }
+
+    /** Fallback when the foreground service can't be started: same notification, posted directly. */
+    fun showRunning(app: QuestboardApp, t: Timer) {
+        if (can()) nm.notify(ID_RUNNING, runningNotification(app, t))
+    }
+
+    fun cancelRunning() = nm.cancel(ID_RUNNING)
 
     fun alert(id: Int, title: String, body: String, tab: String = "timers") {
         if (!can()) return
@@ -72,7 +113,8 @@ class Notifier(private val ctx: Context) {
     }
 
     companion object {
-        const val CH_TIMER = "timer"
+        const val CH_TIMER = "timer_live"
+        const val CH_TIMER_OLD = "timer"
         const val CH_ALERT = "alert"
         const val CH_MISC = "misc"
         const val ID_RUNNING = 1
@@ -104,7 +146,17 @@ class Alarms(private val ctx: Context) {
         if (next != null) setAt(next, timerPi) else am.cancel(timerPi)
 
         val t = running.firstOrNull { it.mode == "countdown" } ?: running.firstOrNull()
-        app.notifier.showRunning(t, t?.let { s.timerEndsAt(it) }, t?.let { System.currentTimeMillis() - s.timerElapsed(it) })
+        val svc = TimerService.instance
+        when {
+            svc != null -> svc.refreshNow()
+            t != null -> try {
+                ContextCompat.startForegroundService(ctx, Intent(ctx, TimerService::class.java))
+            } catch (e: Exception) { // e.g. started from the background on Android 12+
+                app.log.warn("timer", "live notification service not started: $e")
+                app.notifier.showRunning(app, t)
+            }
+            else -> app.notifier.cancelRunning()
+        }
 
         if (app.settings.reminders) {
             for ((q, at) in s.upcomingScheduled()) setAt(at, pi(ACTION_REMIND, q.str("id").hashCode(), q.str("id")))
@@ -114,7 +166,87 @@ class Alarms(private val ctx: Context) {
     companion object {
         const val ACTION_TIMER = "com.questboard.TIMER"
         const val ACTION_REMIND = "com.questboard.REMIND"
+        const val ACTION_PAUSE = "com.questboard.PAUSE"
+        const val ACTION_EXTEND = "com.questboard.EXTEND"
+        const val ACTION_STOP = "com.questboard.STOP"
     }
+}
+
+/**
+ * Foreground service that only exists while a timer runs: keeps its notification
+ * visible (OEM skins hide plain low-priority ones) and refreshes the text every 15 s.
+ */
+class TimerService : Service() {
+    private val handler = Handler(Looper.getMainLooper())
+    private val loop = object : Runnable {
+        override fun run() { if (update()) handler.postDelayed(this, 15_000) }
+    }
+
+    override fun onCreate() { super.onCreate(); instance = this }
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        refreshNow(started = true)
+        return START_NOT_STICKY
+    }
+
+    fun refreshNow(started: Boolean = false) {
+        handler.removeCallbacks(loop)
+        if (update(started)) handler.postDelayed(loop, 15_000)
+    }
+
+    /** true while a timer runs (keep refreshing); otherwise removes the notification and stops. */
+    private fun update(started: Boolean = false): Boolean {
+        val app = application as QuestboardApp
+        val running = app.store.runningTimers()
+        val t = running.firstOrNull { it.mode == "countdown" } ?: running.firstOrNull()
+        val type = if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
+        if (t == null) {
+            // a start request must always be answered with startForeground, even if the timer just stopped
+            if (started) runCatching {
+                ServiceCompat.startForeground(this, Notifier.ID_RUNNING,
+                    NotificationCompat.Builder(this, Notifier.CH_TIMER).setSmallIcon(R.drawable.qb_stopwatch).setContentTitle("Timer").build(), type)
+            }
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            app.notifier.cancelRunning()
+            stopSelf()
+            return false
+        }
+        return try {
+            ServiceCompat.startForeground(this, Notifier.ID_RUNNING, app.notifier.runningNotification(app, t), type)
+            true
+        } catch (e: Exception) {
+            app.log.warn("timer", "foreground notification failed: $e")
+            app.notifier.showRunning(app, t)
+            stopSelf()
+            false
+        }
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacks(loop)
+        if (instance === this) instance = null
+        super.onDestroy()
+    }
+
+    companion object {
+        var instance: TimerService? = null
+            private set
+    }
+}
+
+/**
+ * Opt-in: a finished Pomodoro is written to your calendar as "Focus · <quest>". The event covers the
+ * run time before it finished; if you paused in between, the event also spans that pause.
+ */
+fun writeFocusEvent(app: QuestboardApp, t: Timer) {
+    if (t.kind != "pomodoro" || !app.settings.focusToCalendar) return
+    val end = System.currentTimeMillis()
+    val start = end - t.durationMs
+    val cals = runCatching { app.calendar.calendars() }.getOrDefault(emptyList()).filter { it.writable }
+    val cid = app.settings.calendarId.takeIf { id -> cals.any { it.id == id } } ?: cals.firstOrNull()?.id ?: return
+    runCatching { app.calendar.create(cid, "Focus · ${t.label}", start, end, false, "", "Pomodoro from Questboard") }
+        .onFailure { app.log.exception("focus", it) }
 }
 
 class AlarmReceiver : BroadcastReceiver() {
@@ -123,6 +255,7 @@ class AlarmReceiver : BroadcastReceiver() {
         when (intent.action) {
             Alarms.ACTION_TIMER -> {
                 for (t in app.store.tick()) {
+                    writeFocusEvent(app, t)
                     val (title, body) = when (t.kind) {
                         "pomodoro" -> "Pomodoro complete · +10 XP" to "Nice work on “${t.label}”. Time for a break."
                         "break" -> "Break over" to "Back to your quests."
@@ -132,6 +265,9 @@ class AlarmReceiver : BroadcastReceiver() {
                 }
                 app.alarms.refresh(app)
             }
+            Alarms.ACTION_PAUSE -> intent.getStringExtra("id")?.let { app.store.toggleTimer(it) } // → onLocalChange → refresh
+            Alarms.ACTION_EXTEND -> intent.getStringExtra("id")?.let { app.store.extendTimer(it, 5 * 60_000L) }
+            Alarms.ACTION_STOP -> intent.getStringExtra("id")?.let { app.store.removeTimer(it) }
             Alarms.ACTION_REMIND -> {
                 val q = intent.getStringExtra("id")?.let { app.store.getQuest(it) } ?: return
                 if (q.optBoolean("done")) return

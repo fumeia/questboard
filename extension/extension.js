@@ -296,7 +296,22 @@ export default class QuestboardExtension extends Extension {
         }
     }
 
+    /** Opt-in: a finished Pomodoro becomes a calendar event (same caveat as Android about pauses). */
+    _writeFocusEvent(t) {
+        if (!this._settings.get_boolean('focus-to-calendar') || !this._eds || this._eds.unavailable)
+            return;
+        const src = this._settings.get_string('default-calendar') || this._eds.cachedCalendars?.find(c => c.writable)?.uid;
+        if (!src)
+            return;
+        const end = Date.now();
+        this._eds.call({cmd: 'create', source: src, summary: `Focus · ${t.label}`, start: Math.floor((end - t.durationMs) / 1000),
+            end: Math.floor(end / 1000), allDay: false, location: '', description: 'Pomodoro from Questboard'})
+            .catch(e => this._log.warn('focus', `calendar entry failed: ${e.message}`));
+    }
+
     _notifyFinished(t) {
+        if (t.kind === 'pomodoro')
+            this._writeFocusEvent(t);
         const quest = t.questId ? this._store.getQuest(t.questId) : null;
         let title, body;
         if (t.kind === 'pomodoro') {

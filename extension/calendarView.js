@@ -929,6 +929,13 @@ export class CalendarView {
             timed.push({kind: 'quest', id: q.id, title: q.title, quadrant: q.quadrant, done: q.done,
                 start, end: start + Math.max(15, dur), label: `${fmtMinutes(start)} – ${fmtMinutes(start + dur)}`});
         }
+        // Pomodoros: finished ones as they happened, a running one until its planned end
+        for (const f of this._store.focusBlocks(key)) {
+            const start = Math.max(0, (f.start - begin.getTime()) / 60000);
+            const stop = Math.min(24 * 60, (f.end - begin.getTime()) / 60000);
+            timed.push({kind: 'focus', id: f.id, title: `Focus · ${f.title}`, questId: f.questId, live: f.live,
+                start, end: Math.max(start + 10, stop), label: `${fmtMinutes(start)} – ${fmtMinutes(stop)}${f.live ? ' · running' : ''}`});
+        }
         return {allDay, timed};
     }
 
@@ -1007,7 +1014,7 @@ export class CalendarView {
     /** Rebuild only when the visible blocks actually changed. */
     _renderBlocks(timed) {
         const sig = `${dateKey(this._viewDate)}|${this._tlWidth}|` + timed.map(t =>
-            `${t.kind}:${t.id}:${t.start}:${t.end}:${t.title}:${t.done ? 1 : 0}:${t.quest ? (t.quest.done ? 'qd' : 'q') : ''}:${t.color ?? ''}`).join(';');
+            `${t.kind}:${t.id}:${t.start}:${t.end}:${t.title}:${t.done ? 1 : 0}:${t.live ? 'L' : ''}:${t.quest ? (t.quest.done ? 'qd' : 'q') : ''}:${t.color ?? ''}`).join(';');
         if (sig === this._blocksSig)
             return;
         this._blocksSig = sig;
@@ -1022,17 +1029,27 @@ export class CalendarView {
             const top = box({});
             if (it.quest)
                 top.add_child(icon(it.quest.done ? 'qb-check' : 'qb-target', 'qb-icon qb-block-icon'));
+            if (it.kind === 'focus')
+                top.add_child(icon('qb-target', 'qb-icon qb-block-icon'));
             top.add_child(label(it.title, 'qb-block-title', {ellipsize: true, x_expand: true}));
             content.add_child(top);
             if (h >= 34)
                 content.add_child(label(it.label, 'qb-block-time', {ellipsize: true}));
-            let cls = it.kind === 'event' ? 'qb-block qb-event' : `qb-block qb-qblock qb-${it.quadrant}`;
+            let cls = it.kind === 'event' ? 'qb-block qb-event'
+                : it.kind === 'focus' ? `qb-block qb-focus${it.live ? ' live' : ''}` : `qb-block qb-qblock qb-${it.quadrant}`;
             if (it.done || it.quest?.done)
                 cls += ' done';
             if (it.quest)
                 cls += ' linked';
             const btn = button({style_class: cls, child: content, x_align: Clutter.ActorAlign.FILL, y_align: Clutter.ActorAlign.FILL},
-                () => (it.kind === 'quest' ? this.scheduleQuest(it.id) : this._openEvent(it)), 'block');
+                () => {
+                    if (it.kind === 'quest')
+                        this.scheduleQuest(it.id);
+                    else if (it.kind === 'focus')
+                        it.questId && this._store.getQuest(it.questId) && this._ctx.onQuestClick(it.questId);
+                    else
+                        this._openEvent(it);
+                }, 'block');
             if (it.kind === 'event') {
                 const bg = hexToRgba(it.color, 0.5);
                 const border = it.color && /^#/.test(it.color) ? it.color.slice(0, 7) : null;

@@ -14,6 +14,12 @@ What's inside:
 |---|---|---|
 | Eisenhower matrix (Do first / Schedule / Delegate / Eliminate) with quests | ✔ | ✔ |
 | XP, levels, daily streak | ✔ | ✔ |
+| Long-term goals: link whole quests or single steps, progress + time per goal, +100 XP when reached | ✔ | ✔ |
+| Steps inside quests, each with its own Pomodoro timer and time tracking | ✔ | ✔ |
+| Calendar: pick start + end, then a new quest, a quest from the matrix, or an event; Pomodoros appear as focus blocks | ✔ | ✔ |
+| Goal deadlines with an on-track / behind-pace check | ✔ | ✔ |
+| Weekly review: this week vs the week before (focus, quests, goals, streak) | ✔ | ✔ |
+| Timer notification: +5 min and Stop buttons; optional Google Calendar entry per finished Pomodoro | ✔ (calendar entry only) | ✔ |
 | Habits with weekly grid, streak bonus XP (+20 % from 3 days, +50 % from 7) | ✔ | ✔ |
 | Rewards shop: spend coins (= XP earned − spent) on default or your own rewards | ✔ | ✔ |
 | Google Calendar day view, create / edit / delete events | ✔ (via GNOME Online Accounts) | ✔ (phone calendar) |
@@ -45,7 +51,7 @@ docker compose up -d --build
 curl http://localhost:8787/api/health                        # → {"ok": true, ...}
 ```
 
-- Data lives in `server/data/` (SQLite + published releases). Back that folder up.
+- Data lives in `server/data/` (SQLite + published releases). Back that folder up. The server keeps only the newest 3 app builds per platform (`QB_KEEP_RELEASES`, set to 0 to keep all).
 - Port 8787 can be changed in `docker-compose.yml` (left side of `"8787:8787"`).
 - **Reaching it from outside your home network:** easiest is Tailscale on server + laptop + phone, then use
   the server's Tailscale IP. If you already run a reverse proxy (Caddy/Traefik/nginx) for your other

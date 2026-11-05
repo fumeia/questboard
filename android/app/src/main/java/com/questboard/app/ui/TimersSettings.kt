@@ -97,8 +97,8 @@ private fun TimerCard(app: QuestboardApp, t: Timer, now: Long, picking: Boolean,
             Column(Modifier.weight(1f)) {
                 Muted(listOf(when (t.kind) { "pomodoro" -> "Pomodoro"; "break" -> "Break"; "stopwatch" -> "Stopwatch"; else -> "Countdown" },
                     if (t.finished) "done" else "").filter { it.isNotEmpty() }.joinToString(" · "), size = 12)
-                if (t.kind != "break") Text(t.questId?.let { s.getQuest(it)?.str("title") } ?: "Link quest…", fontSize = 13.sp,
-                    color = if (t.questId != null) C.text else C.muted, modifier = Modifier.clickable(onClick = onPick), maxLines = 1)
+                if (t.kind != "break") Text(t.questId?.let { s.timerLabel(it, t.stepId) } ?: "Link quest…", fontSize = 13.sp,
+                    color = if (t.questId != null) C.text else C.muted, modifier = Modifier.clickable(onClick = onPick), maxLines = 2)
             }
             Box(Modifier.size(46.dp).clip(CircleShape).background(if (running) C.green.copy(alpha = 0.3f) else C.surface).clickable { s.toggleTimer(t.id) },
                 contentAlignment = Alignment.Center) { QbIcon(if (running) "pause" else "play", if (running) C.green else C.text, 20.dp) }
@@ -142,6 +142,7 @@ fun SettingsScreen(app: QuestboardApp, onBack: () -> Unit) {
     var remote by remember { mutableStateOf(st.remoteLogs) }
     var auto by remember { mutableStateOf(st.autoUpdate) }
     var remind by remember { mutableStateOf(st.reminders) }
+    var focusCal by remember { mutableStateOf(st.focusToCalendar) }
     var pomo by remember { mutableStateOf(st.pomodoroMin.toString()) }
     var brk by remember { mutableStateOf(st.breakMin.toString()) }
     var logs by remember { mutableStateOf(app.log.recent.takeLast(80)) }
@@ -192,6 +193,7 @@ fun SettingsScreen(app: QuestboardApp, onBack: () -> Unit) {
             }
         }
         item { ToggleRow("Remind me when a scheduled quest starts", remind) { remind = it; st.reminders = it } }
+        item { ToggleRow("Add finished Pomodoros to Google Calendar", focusCal) { focusCal = it; st.focusToCalendar = it } }
         item { SectionTitle("Updates") }
         item {
             Muted("Installed: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})", size = 13)

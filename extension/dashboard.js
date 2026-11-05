@@ -9,7 +9,7 @@ import Gio from 'gi://Gio';
 import St from 'gi://St';
 
 import {CalendarView} from './calendarView.js';
-import {HabitStrip, HabitsPage, ShopPage, StatsPage} from './pages.js';
+import {HabitStrip, HabitsPage, ProgressPage, ShopPage} from './pages.js';
 import {QUADRANTS, STEP_XP, dueInDays, groupBonus, levelInfo, questXp} from './store.js';
 import {
     addDays, box, button, clearChildren, dateKey, entry, fmtDate, fmtMinutes, fmtSpent, fmtTimer, gicon, icon, iconButton, iconLabel,
@@ -23,7 +23,7 @@ const TABS = [
     ['quests', 'qb-list', 'Quests'],
     ['timers', 'qb-stopwatch', 'Timers'],
     ['shop', 'qb-shop', 'Shop'],
-    ['stats', 'qb-trophy', 'Stats'],
+    ['progress', 'qb-trophy', 'Progress'],
 ];
 
 export class Dashboard {
@@ -40,6 +40,7 @@ export class Dashboard {
         this._detailId = null;
         this._newTimerQuest = null;
         this._questTimeLabels = new Map();
+        this._stepTimeLabels = new Map();
         this._timerWidgets = new Map();
 
         this.actor = box({vertical: true, style_class: 'qb-root'});
@@ -54,14 +55,14 @@ export class Dashboard {
         this.habitStrip = new HabitStrip(this);
         this.habitsPage = new HabitsPage(this);
         this.shopPage = new ShopPage(this);
-        this.statsPage = new StatsPage(this);
+        this.progressPage = new ProgressPage(this);
         this._pages = {
             matrix: this._buildMatrixPage(),
             habits: this.habitsPage.actor,
             quests: this._buildQuestsPage(),
             timers: this._buildTimersPage(),
             shop: this.shopPage.actor,
-            stats: this.statsPage.actor,
+            progress: this.progressPage.actor,
             detail: this._buildDetailPage(),
         };
         for (const p of Object.values(this._pages))
@@ -318,6 +319,12 @@ export class Dashboard {
                 this.render(true);
             }, 'group-toggle'));
         }
+        if (this._store.getGoal(q.goalId))
+            row.add_child(icon('qb-star', 'qb-icon qb-src-icon'));
+        const ext = this._store.extProgress(q);
+        if (ext)
+            row.add_child(label(`${ext.done}/${ext.total}`, ext.done === ext.total ? 'qb-progress-pill full' : 'qb-progress-pill',
+                {y_align: Clutter.ActorAlign.CENTER}));
         if (q.source === 'notion')
             row.add_child(icon('qb-book', 'qb-icon qb-src-icon'));
         if (q.gcal)
@@ -347,21 +354,49 @@ export class Dashboard {
         if (groupOpen && steps.length) {
             const list = box({vertical: true, style_class: 'qb-steps'});
             for (const st of steps)
-                list.add_child(this._stepRow(q, st, false));
+                list.add_child(this._stepRow(q, st, false, now));
             wrap.add_child(list);
         }
         return wrap;
     }
 
-    _stepRow(q, st, editable) {
+    _stepRow(q, st, editable, now = Date.now()) {
         const row = box({style_class: st.done ? 'qb-step done' : 'qb-step'});
         row.add_child(button({style_class: st.done ? 'qb-check qb-check-small checked' : 'qb-check qb-check-small',
             child: icon('qb-check', 'qb-check-icon'), y_align: Clutter.ActorAlign.CENTER}, () => this._store.toggleStep(q.id, st.id), 'step'));
+        const goal = this._store.getGoal(st.goalId);
         if (editable) {
             row.add_child(entry('Step', 'qb-step-entry', txt => this._store.renameStep(q.id, st.id, txt), {text: st.title, x_expand: true}));
-            row.add_child(iconButton('window-close-symbolic', 'qb-flat qb-tiny', () => this._store.deleteStep(q.id, st.id), 'Remove step'));
         } else {
             row.add_child(label(st.title, 'qb-step-title', {ellipsize: true, x_expand: true}));
+            if (goal)
+                row.add_child(icon('qb-star', 'qb-icon qb-src-icon'));
+        }
+        // every step has its own Pomodoro + time
+        const spent = label(fmtSpent(this._store.stepTimeMs(q.id, st.id, now)), 'qb-quest-time', {y_align: Clutter.ActorAlign.CENTER});
+        this._stepTimeLabels.set(`${q.id}/${st.id}`, {label: spent, questId: q.id, stepId: st.id});
+        row.add_child(spent);
+        const running = this._store.isStepRunning(q.id, st.id);
+        if (!st.done || running) {
+            const pomo = this._settings.get_int('pomodoro-minutes');
+            row.add_child(iconButton(running ? 'media-playback-pause-symbolic' : 'qb-target',
+                running ? 'qb-flat qb-tiny qb-running' : 'qb-flat qb-tiny',
+                () => this._store.toggleStepPomodoro(q.id, st.id, pomo),
+                running ? 'Pause step timer' : `${pomo}m focus on this step`));
+        }
+        if (editable) {
+            // cycle: no goal → each open goal → no goal
+            const goals = this._store.goals().filter(g => !g.done);
+            if (goals.length || goal) {
+                const ids = [null, ...goals.map(g => g.id)];
+                const next = ids[(ids.indexOf(goal?.id ?? null) + 1) % ids.length];
+                const gb = textButton(goal ? goal.title : 'Goal…', 'qb-small qb-seg qb-step-goal',
+                    () => this._store.setStepGoal(q.id, st.id, next));
+                if (goal)
+                    gb.add_style_pseudo_class('checked');
+                row.add_child(gb);
+            }
+            row.add_child(iconButton('window-close-symbolic', 'qb-flat qb-tiny', () => this._store.deleteStep(q.id, st.id), 'Remove step'));
         }
         return row;
     }
@@ -408,6 +443,10 @@ export class Dashboard {
         b.add_child(titleRow);
         b.add_child(entry('Notes (Enter to save)', '', t => this._store.updateQuest(q.id, {notes: t}), {text: q.notes ?? '', x_expand: true}));
 
+        const ext = this._store.extProgress(q);
+        if (ext)
+            b.add_child(label(ext.text, 'qb-muted', {x_align: Clutter.ActorAlign.START}));
+
         // XP line
         const xpRow = box({style_class: 'qb-actions-row'});
         const steps = q.steps ?? [];
@@ -446,11 +485,25 @@ export class Dashboard {
         }, {x_expand: true}));
         b.add_child(tr0);
 
+        // long-term goal
+        b.add_child(label('Goal', 'qb-section-title'));
+        const gr = box({style_class: 'qb-actions-row qb-wrap-row'});
+        const goals = this._store.goals().filter(g => !g.done || g.id === q.goalId);
+        if (!goals.length)
+            gr.add_child(label('No goals yet. Add long-term goals on the Progress tab; single steps can be linked too.', 'qb-muted', {wrap: true}));
+        for (const g of goals) {
+            const btn = textButton(g.title, 'qb-small qb-seg', () => this._store.updateQuest(q.id, {goalId: q.goalId === g.id ? null : g.id}));
+            if (q.goalId === g.id)
+                btn.add_style_pseudo_class('checked');
+            gr.add_child(btn);
+        }
+        b.add_child(gr);
+
         // steps
         b.add_child(label(steps.length ? `Steps · ${this._store.stepProgress(q).done}/${steps.length}` : 'Steps (turn this into a group)', 'qb-section-title'));
         const sl = box({vertical: true, style_class: 'qb-steps qb-steps-edit'});
         for (const st of steps)
-            sl.add_child(this._stepRow(q, st, true));
+            sl.add_child(this._stepRow(q, st, true, now));
         sl.add_child(entry('Add a step, e.g. Exercise 1 — Enter', '', (txt, e) => {
             this._store.addStep(q.id, txt);
             e.set_text('');
@@ -712,6 +765,7 @@ export class Dashboard {
         this._stale = false;
         const now = Date.now();
         this._questTimeLabels.clear();
+        this._stepTimeLabels.clear();
         this._renderHeader(now);
         this._renderSync();
         switch (this._page) {
@@ -721,7 +775,7 @@ export class Dashboard {
         case 'timers': this._renderTimersPage(now); break;
         case 'shop': this.shopPage.render(); break;
         case 'detail': this._renderDetail(now); break;
-        case 'stats': this.statsPage.render(); break;
+        case 'progress': this.progressPage.render(now); break;
         }
         this.calendar.render();
     }
@@ -732,6 +786,9 @@ export class Dashboard {
         for (const {label: l, quest} of this._questTimeLabels.values())
             if (this._store.isQuestRunning(quest.id))
                 l.text = fmtSpent(this._store.questTimeMs(quest, now));
+        for (const {label: l, questId, stepId} of this._stepTimeLabels.values())
+            if (this._store.isStepRunning(questId, stepId))
+                l.text = fmtSpent(this._store.stepTimeMs(questId, stepId, now));
         if (this._page === 'timers')
             for (const id of this._timerWidgets.keys())
                 this._updateTimerWidget(id, now);

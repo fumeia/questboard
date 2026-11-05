@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -53,7 +55,8 @@ import com.questboard.app.ui.QbIcon
 import com.questboard.app.ui.QbTheme
 import com.questboard.app.ui.SettingsScreen
 import com.questboard.app.ui.ShopScreen
-import com.questboard.app.ui.StatsScreen
+import com.questboard.app.ui.ProgressScreen
+import com.questboard.app.sys.writeFocusEvent
 import com.questboard.app.ui.TimersScreen
 import com.questboard.app.ui.fmtSpent
 import com.questboard.app.ui.fmtTimer
@@ -122,6 +125,7 @@ class MainActivity : ComponentActivity() {
             while (running) {
                 now = System.currentTimeMillis()
                 app.store.tick(now).forEach { t ->
+                    writeFocusEvent(app, t)
                     app.notifier.alert(t.id.hashCode(), if (t.kind == "pomodoro") "Pomodoro complete · +10 XP" else "Timer finished", t.label)
                 }
                 delay(1000)
@@ -130,7 +134,7 @@ class MainActivity : ComponentActivity() {
         Scaffold(
             containerColor = C.bg,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            bottomBar = { if (tab.value != "settings" && tab.value != "stats") BottomNav() },
+            bottomBar = { if (tab.value != "settings") BottomNav() },
         ) { pad ->
             Column(Modifier.fillMaxSize().padding(pad)) {
                 Header(v, now)
@@ -138,11 +142,11 @@ class MainActivity : ComponentActivity() {
                     when (tab.value) {
                         "matrix" -> MatrixScreen(app, v, now)
                         "habits" -> HabitsScreen(app, v)
-                        "calendar" -> CalendarScreen(app, v, permVersion.value)
+                        "calendar" -> CalendarScreen(app, v, permVersion.value, now)
                         "timers" -> TimersScreen(app, v, now)
                         "shop" -> ShopScreen(app, v)
                         "settings" -> SettingsScreen(app) { tab.value = "matrix" }
-                        "stats" -> StatsScreen(app, v) { tab.value = "matrix" }
+                        "progress", "stats" -> ProgressScreen(app, v, now)
                     }
                 }
             }
@@ -154,9 +158,12 @@ class MainActivity : ComponentActivity() {
         val s = app.store
         val info = remember(v) { levelInfo(s.xp) }
         val sync by app.sync.status.collectAsState()
-        Row(Modifier.fillMaxWidth().background(C.surface).statusBarsPadding().padding(horizontal = 12.dp, vertical = 6.dp),
+        Row(Modifier.fillMaxWidth().background(C.surface).statusBarsPadding().padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.clip(RoundedCornerShape(50)).background(C.accent).clickable { tab.value = "stats" }.padding(horizontal = 10.dp, vertical = 3.dp)) {
+          // Stats take what's left and scroll sideways on narrow phones; the timer chip,
+          // sync and settings icons on the right always stay visible.
+          Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.clip(RoundedCornerShape(50)).background(C.accent).clickable { tab.value = "progress" }.padding(horizontal = 10.dp, vertical = 3.dp)) {
                 Text("Lv ${info.level}", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = C.text)
             }
             HSpace(8.dp)
@@ -177,9 +184,11 @@ class MainActivity : ComponentActivity() {
             HSpace(10.dp); QbIcon("check", C.muted, 14.dp); HSpace(2.dp); Muted("${s.completedOn()}", size = 13)
             val focus = fmtSpent(s.focusOn(now = now))
             if (focus.isNotEmpty()) { HSpace(8.dp); QbIcon("stopwatch", C.muted, 14.dp); HSpace(2.dp); Muted(focus, size = 13) }
-            Box(Modifier.weight(1f))
+            HSpace(6.dp)
+          }
             val t = s.runningTimers().firstOrNull()
             if (t != null) {
+                HSpace(4.dp)
                 Box(Modifier.clip(RoundedCornerShape(50)).background(C.green.copy(alpha = 0.22f)).clickable { tab.value = "timers" }
                     .padding(horizontal = 8.dp, vertical = 3.dp)) {
                     Text(fmtTimer(if (t.mode == "countdown") s.timerRemaining(t, now) else s.timerElapsed(t, now)),
@@ -198,7 +207,7 @@ class MainActivity : ComponentActivity() {
         NavigationBar(containerColor = C.surface, tonalElevation = 0.dp) {
             for ((id, icon, label) in listOf(
                 Triple("matrix", "grid", "Matrix"), Triple("habits", "repeat", "Habits"), Triple("calendar", "list", "Calendar"),
-                Triple("timers", "stopwatch", "Timers"), Triple("shop", "shop", "Shop"),
+                Triple("timers", "stopwatch", "Timers"), Triple("shop", "shop", "Shop"), Triple("progress", "trophy", "Progress"),
             )) {
                 NavigationBarItem(
                     selected = tab.value == id, onClick = { tab.value = id },

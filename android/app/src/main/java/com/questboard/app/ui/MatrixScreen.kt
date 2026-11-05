@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,11 +24,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -173,7 +178,10 @@ fun QuestSheet(app: QuestboardApp, id: String, v: Int, now: Long, onClose: () ->
         if (notes != q.str("notes")) s.updateQuest(id, mapOf("notes" to notes))
     }
     ModalBottomSheet(onDismissRequest = { saveText(); onClose() }, containerColor = C.surface) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).navigationBarsPadding().padding(bottom = 16.dp),
+        // Scrolls: without it a long step list ran out of height and the last step was drawn
+        // on top of the XP / time / Notion row below it.
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)
+            .navigationBarsPadding().imePadding().padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Check(q.optBoolean("done")) { s.setDone(id, !q.optBoolean("done")) }
@@ -182,7 +190,10 @@ fun QuestSheet(app: QuestboardApp, id: String, v: Int, now: Long, onClose: () ->
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { saveText() }))
             }
             OutlinedTextField(notes, { notes = it }, placeholder = { Text("Notes") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
-            StepsEditor(app, q)
+            s.extProgress(q)?.let { p ->
+                Text(p.text, color = C.text, fontSize = 13.sp)
+            }
+            StepsEditor(app, q, now)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 QbIcon("sparkle", C.gold, 14.dp); HSpace(4.dp); Muted("${questXp(q)} XP", size = 13)
                 HSpace(14.dp); QbIcon("stopwatch", C.muted, 14.dp); HSpace(4.dp)
@@ -194,6 +205,7 @@ fun QuestSheet(app: QuestboardApp, id: String, v: Int, now: Long, onClose: () ->
             }
             QuadrantChips(q.str("quadrant")) { s.updateQuest(id, mapOf("quadrant" to it)) }
             TopicChips(app, q)
+            GoalChips(app, q)
             DueChips(q.optJSONObject("due")?.str("date")?.ifEmpty { null }) { d -> s.updateQuest(id, mapOf("due" to d?.let { jobj("date" to it) })) }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Muted("Schedule today at", size = 12)
@@ -234,21 +246,60 @@ fun TopicChips(app: QuestboardApp, q: org.json.JSONObject) {
         keyboardActions = KeyboardActions(onDone = { if (newTopic.isNotBlank()) app.store.updateQuest(id, mapOf("topic" to newTopic.trim())); newTopic = "" }))
 }
 
-/** Steps of a group: tick each (10 XP); all done = quest XP + 50 % bonus. */
+/** Long-term goal this quest counts toward. */
 @Composable
-fun StepsEditor(app: QuestboardApp, q: org.json.JSONObject) {
+fun GoalChips(app: QuestboardApp, q: org.json.JSONObject) {
+    val id = q.str("id")
+    val current = q.str("goalId")
+    val goals = app.store.goals().filter { !it.optBoolean("done") || it.str("id") == current }
+    if (goals.isEmpty()) { Muted("Goal — create long-term goals on the Progress tab, then link quests here", size = 12); return }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Muted("Goal", size = 12)
+        for (g in goals) {
+            val gid = g.str("id")
+            Pill(g.str("title"), if (gid == current) C.green.copy(alpha = 0.45f) else C.card) {
+                app.store.updateQuest(id, mapOf("goalId" to if (gid == current) null else gid))
+            }
+        }
+    }
+}
+
+/** Steps of a group: tick each (10 XP); all done = quest XP + 50 % bonus. Each step has its own Pomodoro and goal link. */
+@Composable
+fun StepsEditor(app: QuestboardApp, q: org.json.JSONObject, now: Long) {
     val s = app.store
     val id = q.str("id")
     val steps = s.steps(q)
     var newStep by remember(id) { mutableStateOf("") }
+    var goalMenuFor by remember(id) { mutableStateOf<String?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Muted(if (steps.isEmpty()) "Steps — split it up (each step 10 XP, finishing all: +${com.questboard.app.data.groupBonus(q)} bonus)"
               else "Steps ${steps.count { it.optBoolean("done") }}/${steps.size} · finishing all: +${com.questboard.app.data.groupBonus(q)} bonus", size = 12)
-        for (st in steps) Row(verticalAlignment = Alignment.CenterVertically) {
-            Check(st.optBoolean("done")) { s.toggleStep(id, st.str("id")) }
+        for (st in steps) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            val sid = st.str("id")
+            val done = st.optBoolean("done")
+            val running = s.isStepRunning(id, sid)
+            val goal = s.getGoal(st.str("goalId"))
+            Check(done) { s.toggleStep(id, sid) }
             HSpace(8.dp)
-            Text(st.str("title"), fontSize = 14.sp, color = if (st.optBoolean("done")) C.muted else C.text, modifier = Modifier.weight(1f))
-            IconBtn("close", { s.deleteStep(id, st.str("id")) }, C.muted, 14.dp)
+            Column(Modifier.weight(1f)) {
+                Text(st.str("title"), fontSize = 14.sp, color = if (done) C.muted else C.text)
+                val spent = fmtSpent(s.stepTimeMs(id, sid, now))
+                val meta = listOfNotNull(goal?.str("title"), spent.ifEmpty { null }).joinToString(" · ")
+                if (meta.isNotEmpty()) Muted(meta, size = 11)
+            }
+            if (!done || running) IconBtn(if (running) "pause" else "target",
+                { s.toggleStepPomodoro(id, sid, app.settings.pomodoroMin) }, if (running) C.green else C.red, 16.dp)
+            Box {
+                IconBtn("star", { goalMenuFor = sid }, if (goal != null) C.gold else C.muted, 16.dp)
+                DropdownMenu(expanded = goalMenuFor == sid, onDismissRequest = { goalMenuFor = null }) {
+                    DropdownMenuItem(text = { Text("No goal") }, onClick = { s.setStepGoal(id, sid, null); goalMenuFor = null })
+                    for (g in s.goals().filter { !it.optBoolean("done") })
+                        DropdownMenuItem(text = { Text((if (g.str("id") == st.str("goalId")) "✓ " else "") + g.str("title")) },
+                            onClick = { s.setStepGoal(id, sid, g.str("id")); goalMenuFor = null })
+                }
+            }
+            IconBtn("close", { s.deleteStep(id, sid) }, C.muted, 14.dp)
         }
         OutlinedTextField(newStep, { newStep = it }, singleLine = true, placeholder = { Text("Add a step, e.g. Exercise 1") },
             modifier = Modifier.fillMaxWidth(),

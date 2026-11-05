@@ -8,6 +8,7 @@ import android.provider.Settings as AndroidSettings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -62,7 +64,8 @@ private const val HOUR_DP = 56
 private const val GUTTER_DP = 46
 
 private data class Block(val key: String, val title: String, val start: Int, val end: Int, val color: Color,
-                         val event: CalEvent? = null, val questId: String? = null, val done: Boolean = false) {
+                         val event: CalEvent? = null, val questId: String? = null, val done: Boolean = false,
+                         val focus: Boolean = false, val live: Boolean = false) {
     var col = 0
     var ncols = 1
 }
@@ -84,12 +87,14 @@ private fun layout(items: List<Block>): List<Block> {
 }
 
 @Composable
-fun CalendarScreen(app: QuestboardApp, v: Int, permVersion: Int) {
+fun CalendarScreen(app: QuestboardApp, v: Int, permVersion: Int, now: Long = System.currentTimeMillis()) {
     val ctx = LocalContext.current
     var day by remember { mutableStateOf(LocalDate.now()) }
     var reload by remember { mutableStateOf(0) }
     var editEvent by remember { mutableStateOf<CalEvent?>(null) }
-    var newAt by remember { mutableStateOf<Int?>(null) }
+    // two taps pick a range (like the desktop): first tap = start, second = end → slot dialog
+    var pickStart by remember { mutableStateOf<Int?>(null) }
+    var slot by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var openQuest by remember { mutableStateOf<String?>(null) }
     val repo = app.calendar
     val hasPerm = remember(permVersion) { repo.hasPermission() }
@@ -111,7 +116,10 @@ fun CalendarScreen(app: QuestboardApp, v: Int, permVersion: Int) {
                 day.month.getDisplayName(TextStyle.SHORT, Locale.getDefault()), fontWeight = FontWeight.Bold, fontSize = 16.sp,
                 modifier = Modifier.weight(1f).clickable { day = LocalDate.now() })
             IconBtn("chevron-right", { day = day.plusDays(1) }, C.muted, 18.dp)
-            IconBtn("plus", { newAt = if (day == LocalDate.now()) ((LocalTime.now().hour + 1) * 60).coerceAtMost(23 * 60) else app.settings.dayStartHour * 60 })
+            IconBtn("plus", {
+                val m = if (day == LocalDate.now()) ((LocalTime.now().hour + 1) * 60).coerceAtMost(23 * 60) else app.settings.dayStartHour * 60
+                pickStart = null; slot = m to m + 60
+            })
         }
         // week strip
         val ws = day.minusDays((day.dayOfWeek.value - 1).toLong())
@@ -158,29 +166,63 @@ fun CalendarScreen(app: QuestboardApp, v: Int, permVersion: Int) {
                 list += Block("q${q.str("id")}", q.str("title"), s, s + maxOf(15, sc.optInt("duration", 60)), C.quad(q.str("quadrant")),
                     questId = q.str("id"), done = q.optBoolean("done"))
             }
+            for (f in app.store.focusBlocks(dateKey(day))) {
+                val s = ((maxOf(f.start, dayStart) - dayStart) / 60000).toInt()
+                val en = ((minOf(f.end, dayStart + 86_400_000) - dayStart) / 60000).toInt()
+                list += Block("f${f.id}", "Focus · ${f.title}", s, maxOf(s + 10, en), C.red, questId = f.questId, focus = true, live = f.live)
+            }
             layout(list)
+        }
+        pickStart?.let { ps ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(C.accent.copy(alpha = 0.25f))
+                .padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Start ${fmtMin(ps)} — now tap the end time", fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Pill("1 h", C.card) { slot = ps to minOf(ps + 60, 24 * 60); pickStart = null }
+                IconBtn("close", { pickStart = null }, C.muted, 14.dp)
+            }
         }
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll)) {
             val area = maxWidth - GUTTER_DP.dp
             Box(Modifier.fillMaxWidth().height((24 * HOUR_DP).dp).pointerInput(day) {
                 detectTapGestures { off ->
-                    if (off.x > GUTTER_DP.dp.toPx()) newAt = ((off.y / (HOUR_DP / 2).dp.toPx()).toInt() * 30).coerceIn(0, 23 * 60 + 30)
+                    if (off.x <= GUTTER_DP.dp.toPx()) return@detectTapGestures
+                    val m = (Math.round(off.y / (HOUR_DP / 4f).dp.toPx()) * 15).coerceIn(0, 24 * 60 - 15)
+                    val ps = pickStart
+                    if (ps == null) { pickStart = m; return@detectTapGestures }
+                    var a = minOf(ps, m); var b = maxOf(ps, m)
+                    b = maxOf(b + if (b == a) 30 else 0, a + 15)
+                    pickStart = null
+                    slot = a to minOf(b, 24 * 60)
                 }
             }) {
                 for (h in 0..23) {
                     Box(Modifier.offset(y = (h * HOUR_DP).dp).fillMaxWidth().height(1.dp).padding(start = (GUTTER_DP - 4).dp).background(C.line))
                     Text("%02d:00".format(h), fontSize = 10.sp, color = C.muted, modifier = Modifier.offset(y = (h * HOUR_DP - 6).coerceAtLeast(0).dp).width((GUTTER_DP - 6).dp))
                 }
+                val selRange = slot ?: pickStart?.let { it to it + 15 }
+                selRange?.let { (a, b) ->
+                    Box(Modifier.offset(x = GUTTER_DP.dp, y = (a * HOUR_DP / 60f).dp).size(area - 2.dp, ((b - a) * HOUR_DP / 60f).dp)
+                        .clip(RoundedCornerShape(6.dp)).background(C.accent.copy(alpha = 0.3f)).border(1.dp, C.accent, RoundedCornerShape(6.dp)))
+                }
                 for (b in blocks) {
                     val w = area / b.ncols
                     Column(Modifier.offset(x = GUTTER_DP.dp + w * b.col, y = (b.start * HOUR_DP / 60f).dp)
                         .size(w - 3.dp, ((b.end - b.start) * HOUR_DP / 60f - 2).coerceAtLeast(20f).dp)
-                        .clip(RoundedCornerShape(6.dp)).background(b.color.copy(alpha = if (b.done) 0.2f else 0.55f))
-                        .clickable { if (b.questId != null) openQuest = b.questId else editEvent = b.event }
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(b.color.copy(alpha = if (b.focus) (if (b.live) 0.4f else 0.22f) else if (b.done) 0.2f else 0.55f))
+                        .let { if (b.focus) it.border(1.dp, b.color.copy(alpha = if (b.live) 0.9f else 0.5f), RoundedCornerShape(6.dp)) else it }
+                        .clickable {
+                            when {
+                                b.focus -> b.questId?.takeIf { app.store.getQuest(it) != null }?.let { openQuest = it }
+                                b.questId != null -> openQuest = b.questId
+                                else -> editEvent = b.event
+                            }
+                        }
                         .padding(horizontal = 6.dp, vertical = 2.dp)) {
                         Text(b.title, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis,
                             color = if (b.done) C.muted else C.text)
-                        if (b.end - b.start >= 40) Text("${fmtMin(b.start)} – ${fmtMin(b.end)}", fontSize = 10.sp, color = C.muted)
+                        if (b.end - b.start >= 40) Text("${fmtMin(b.start)} – ${fmtMin(b.end)}${if (b.live) " · running" else ""}", fontSize = 10.sp, color = C.muted)
                     }
                 }
                 if (day == LocalDate.now()) {
@@ -190,39 +232,75 @@ fun CalendarScreen(app: QuestboardApp, v: Int, permVersion: Int) {
             }
         }
     }
-    newAt?.let { m -> NewAtDialog(app, cals, day, m, onDone = { newAt = null }, onSaved = { reload++ }) }
+    slot?.let { (a, b) -> SlotDialog(app, cals, day, a, b, onDone = { slot = null }, onSaved = { reload++ }) }
     editEvent?.let { e -> EventDialog(app, cals, e, day, e.begin, e.end, onDone = { editEvent = null }, onSaved = { reload++ }) }
     openQuest?.let { id -> QuestSheet(app, id, v, System.currentTimeMillis()) { openQuest = null } }
 }
 
+/** A picked time range → new quest, one of the open quests from the matrix, or a calendar event. */
 @Composable
-private fun NewAtDialog(app: QuestboardApp, cals: List<CalInfo>, day: LocalDate, minute: Int, onDone: () -> Unit, onSaved: () -> Unit) {
-    var mode by remember { mutableStateOf("quest") }
+private fun SlotDialog(app: QuestboardApp, cals: List<CalInfo>, day: LocalDate, start0: Int, end0: Int, onDone: () -> Unit, onSaved: () -> Unit) {
+    var mode by remember { mutableStateOf("new") }
     var title by remember { mutableStateOf("") }
     var quad by remember { mutableStateOf("q2") }
+    var start by remember { mutableStateOf(fmtMin(start0)) }
+    var end by remember { mutableStateOf(fmtMin(end0)) }
+    var pick by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val open = remember { app.store.openQuests() }
+    val range = { val a = parseHm(start); val b = parseHm(end); if (a != null && b != null && b > a) a to b else null }
     if (mode == "event") {
-        val start = day.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() + minute * 60_000L
-        EventDialog(app, cals, null, day, start, start + 3_600_000, onDone, onSaved, initialTitle = title)
+        val base = day.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val (a, b) = range() ?: (start0 to end0)
+        EventDialog(app, cals, null, day, base + a * 60_000L, base + b * 60_000L, onDone, onSaved, initialTitle = title)
         return
     }
     AlertDialog(
         onDismissRequest = onDone, containerColor = C.surface,
-        title = { Text("${day.dayOfMonth}.${day.monthValue}. · ${fmtMin(minute)}") },
+        title = { Text("${day.dayOfMonth}.${day.monthValue}. · ${fmtMin(start0)} – ${fmtMin(end0)}") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Pill("Quest", C.accent) {}
+                    Pill("New quest", if (mode == "new") C.accent else C.card) { mode = "new" }
+                    Pill("From matrix", if (mode == "existing") C.accent else C.card) { mode = "existing" }
                     Pill("Event", C.card) { mode = "event" }
                 }
-                OutlinedTextField(title, { title = it }, singleLine = true, placeholder = { Text("Quest for this slot") })
-                QuadrantChips(quad) { quad = it }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(start, { start = it }, singleLine = true, modifier = Modifier.weight(1f), label = { Text("Start") })
+                    OutlinedTextField(end, { end = it }, singleLine = true, modifier = Modifier.weight(1f), label = { Text("End") })
+                }
+                if (mode == "new") {
+                    OutlinedTextField(title, { title = it }, singleLine = true, placeholder = { Text("Quest for this slot") })
+                    QuadrantChips(quad) { quad = it }
+                } else {
+                    if (open.isEmpty()) Muted("No open quests in the matrix.", size = 13)
+                    Column(Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        for (q in open) {
+                            val id = q.str("id")
+                            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                                .background(if (id == pick) C.accent.copy(alpha = 0.35f) else Color.Transparent)
+                                .clickable { pick = id }.padding(horizontal = 8.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Dot(C.quad(q.str("quadrant")))
+                                Text(q.str("title"), fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                q.optJSONObject("scheduled")?.let { sc -> Muted(fmtMin(sc.optInt("start")), size = 11) }
+                            }
+                        }
+                    }
+                }
+                error?.let { Text(it, color = C.red, fontSize = 12.sp) }
             }
         },
         confirmButton = {
             TextButton(onClick = {
-                app.store.addQuest(title, quad, jobj("date" to dateKey(day), "start" to minute, "duration" to 60))
+                val (a, b) = range() ?: run { error = "Times look like 14:30, end after start"; return@TextButton }
+                val sched = jobj("date" to dateKey(day), "start" to a, "duration" to b - a)
+                if (mode == "existing") {
+                    val id = pick ?: run { error = "Pick a quest"; return@TextButton }
+                    app.store.updateQuest(id, mapOf("scheduled" to sched))
+                } else if (app.store.addQuest(title, quad, sched) == null) { error = "Give it a title"; return@TextButton }
                 onDone()
-            }) { Text("Add quest") }
+            }) { Text(if (mode == "existing") "Assign slot" else "Add quest") }
         },
         dismissButton = { TextButton(onClick = onDone) { Text("Cancel") } },
     )

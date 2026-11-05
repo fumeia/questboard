@@ -28,11 +28,13 @@ val QUADRANTS = listOf(
     Quadrant("q3", "Delegate", "Delegate", "Urgent · Not important", 15),
     Quadrant("q4", "Eliminate", "Drop", "Not urgent · Not important", 5),
 )
-val COLLECTIONS = listOf("quests", "habits", "checkins", "rewards", "ledger", "sessions")
+val COLLECTIONS = listOf("quests", "habits", "checkins", "rewards", "ledger", "sessions", "goals")
 val PICKABLE_ICONS = listOf("star", "heart", "book", "dumbbell", "drop", "moon", "music", "game", "film", "pizza",
     "leaf", "bolt", "coffee", "gift", "target", "trophy", "sparkle", "flame", "shield", "repeat")
 const val POMODORO_XP = 10
 const val STEP_XP = 10
+/** Reaching a long-term goal. */
+const val GOAL_XP = 100
 fun groupBonus(q: JSONObject) = maxOf(10, Math.round(questXp(q) * 0.5).toInt())
 private const val DAY_MS = 86_400_000L
 private const val TOMBSTONE_TTL = 60 * DAY_MS
@@ -89,16 +91,17 @@ fun jobj(vararg pairs: Pair<String, Any?>): JSONObject = JSONObject().apply {
 
 /** Device-local live timer. */
 data class Timer(
-    val id: String, var label: String, val mode: String, val kind: String, val durationMs: Long,
+    val id: String, var label: String, val mode: String, val kind: String, var durationMs: Long,
     var questId: String?, var elapsedMs: Long = 0, var startedAt: Long? = null, var finished: Boolean = false,
+    var stepId: String? = null,
 ) {
     fun toJson() = jobj("id" to id, "label" to label, "mode" to mode, "kind" to kind, "durationMs" to durationMs,
-        "questId" to questId, "elapsedMs" to elapsedMs, "startedAt" to startedAt, "finished" to finished)
+        "questId" to questId, "elapsedMs" to elapsedMs, "startedAt" to startedAt, "finished" to finished, "stepId" to stepId)
 
     companion object {
         fun from(o: JSONObject) = Timer(o.str("id"), o.str("label"), o.str("mode"), o.str("kind"), o.optLong("durationMs"),
             o.str("questId").ifEmpty { null }, o.optLong("elapsedMs"), if (o.isNull("startedAt")) null else o.optLong("startedAt"),
-            o.bool("finished"))
+            o.bool("finished"), o.str("stepId").ifEmpty { null })
     }
 }
 
@@ -253,7 +256,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
 
     private class Derived(
         val lifetime: Int, val balance: Int, val doneByDay: Map<String, Int>, val activeDays: Set<String>,
-        val questMs: Map<String, Long>, val focusByDay: Map<String, Long>, val checkins: Set<String>,
+        val questMs: Map<String, Long>, val stepMs: Map<String, Long>, val focusByDay: Map<String, Long>, val checkins: Set<String>,
     )
 
     private fun derived(): Derived {
@@ -263,6 +266,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         val doneByDay = mutableMapOf<String, Int>()
         val active = mutableSetOf<String>()
         val questMs = mutableMapOf<String, Long>()
+        val stepMs = mutableMapOf<String, Long>()
         val focus = mutableMapOf<String, Long>()
         for (l in all("ledger")) {
             val a = l.optInt("amount")
@@ -278,10 +282,12 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         for (s in all("sessions")) {
             val q = s.str("questId")
             if (q.isNotEmpty()) questMs[q] = (questMs[q] ?: 0) + s.optLong("durationMs")
+            val st = s.str("stepId")
+            if (q.isNotEmpty() && st.isNotEmpty()) stepMs["$q/$st"] = (stepMs["$q/$st"] ?: 0) + s.optLong("durationMs")
             if (s.str("kind") != "break") focus[s.str("date")] = (focus[s.str("date")] ?: 0) + s.optLong("durationMs")
         }
         val checkins = all("checkins").map { it.str("id") }.toSet()
-        return Derived(lifetime, balance, doneByDay, active, questMs, focus, checkins).also { cache = it }
+        return Derived(lifetime, balance, doneByDay, active, questMs, stepMs, focus, checkins).also { cache = it }
     }
 
     val xp get() = derived().lifetime
@@ -321,11 +327,13 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
     fun dueOn(key: String) = openQuests().filter { it.optJSONObject("due")?.str("date") == key }
     fun scheduledOn(key: String) = quests.filter { it.optJSONObject("scheduled")?.str("date") == key }
 
-    fun addQuest(title: String, quadrant: String = "q1", scheduled: JSONObject? = null, due: JSONObject? = null): JSONObject? {
+    fun addQuest(title: String, quadrant: String = "q1", scheduled: JSONObject? = null, due: JSONObject? = null,
+                 goalId: String? = null): JSONObject? {
         val t = title.trim()
         if (t.isEmpty()) return null
         val q = put("quests", jobj("id" to uid(), "title" to t, "quadrant" to quadrant, "done" to false, "doneAt" to null,
             "createdAt" to System.currentTimeMillis(), "scheduled" to scheduled, "notes" to "", "due" to due))
+        if (goalId != null) q.put("goalId", goalId)
         changed()
         return q
     }
@@ -344,6 +352,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         val now = System.currentTimeMillis()
         if (done) {
             for (t in timers) if (t.questId == id && t.startedAt != null) credit(t, now)
+            creditSlot(q, now)
             val steps = q.optJSONArray("steps") ?: JSONArray()
             val newSteps = JSONArray()
             for (i in 0 until steps.length()) {
@@ -363,8 +372,44 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         } else {
             patch("quests", id, mapOf("done" to false, "doneAt" to null))
             del("ledger", "quest.$id")
+            del("sessions", "slot.$id")
         }
         changed()
+    }
+
+    /** The window a quest was planned for: its time slot, else its linked calendar event (ms). */
+    fun questSlot(q: JSONObject): Pair<Long, Long>? {
+        val sc = q.optJSONObject("scheduled")
+        val et = q.optJSONObject("eventTime")
+        val dueDate = q.optJSONObject("due")?.str("date").orEmpty()
+        val (date, start, end) = when {
+            sc != null && sc.str("date").isNotEmpty() -> Triple(sc.str("date"), sc.optInt("start"), sc.optInt("start") + sc.optInt("duration", 60))
+            et != null && dueDate.isNotEmpty() -> {
+                val a = et.optInt("start"); val b = et.optInt("end")
+                Triple(dueDate, a, if (b > a) b else b + 24 * 60)
+            }
+            else -> return null
+        }
+        val base = LocalDate.parse(date).atStartOfDay(ZoneId.systemDefault())
+        return base.plusMinutes(start.toLong()).toInstant().toEpochMilli() to base.plusMinutes(end.toLong()).toInstant().toEpochMilli()
+    }
+
+    /**
+     * Ticking off a quest with a time slot counts the slot as time spent (quest, goal, stats):
+     * only the part already passed, minus time timers already tracked inside it.
+     */
+    private fun creditSlot(q: JSONObject, now: Long) {
+        val (start, slotEnd) = questSlot(q) ?: return
+        val end = min(slotEnd, now)
+        if (end <= start) return
+        val id = q.str("id")
+        var covered = 0L
+        for (s in all("sessions")) if (s.str("questId") == id && s.str("id") != "slot.$id")
+            covered += max(0L, min(s.optLong("end"), end) - max(s.optLong("start"), start))
+        val ms = end - start - covered
+        if (ms < 60_000) return
+        put("sessions", jobj("id" to "slot.$id", "questId" to id, "stepId" to null, "kind" to "slot", "start" to start, "end" to end,
+            "durationMs" to ms, "date" to dateKeyOf(start), "topic" to q.str("topic").ifEmpty { null }))
     }
 
     // ---- steps (a quest with steps is a "group") ----------------------------
@@ -406,20 +451,167 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
 
     fun deleteStep(questId: String, stepId: String) {
         val q = getQuest(questId) ?: return
+        val now = System.currentTimeMillis()
+        for (t in timers) if (t.questId == questId && t.stepId == stepId) {
+            if (t.startedAt != null) { credit(t, now); t.startedAt = now } // keeps running for the quest as a whole
+            t.stepId = null
+        }
         patch("quests", questId, mapOf("steps" to JSONArray(steps(q).filter { it.str("id") != stepId })))
         changed()
     }
 
+    /** Link one step to a long-term goal (null = unlink). */
+    fun setStepGoal(questId: String, stepId: String, goalId: String?) {
+        val q = getQuest(questId) ?: return
+        val arr = JSONArray(steps(q).map { st -> st.copy().also { if (it.str("id") == stepId) it.put("goalId", goalId ?: JSONObject.NULL) } })
+        patch("quests", questId, mapOf("steps" to arr))
+        changed()
+    }
+
+    /** Extend a running countdown (e.g. "+5 min" from the notification). */
+    fun extendTimer(id: String, ms: Long) {
+        val t = getTimer(id) ?: return
+        if (t.mode != "countdown" || ms <= 0) return
+        t.durationMs += ms
+        t.finished = false
+        changed()
+    }
+
+    fun stepTimeMs(questId: String, stepId: String, now: Long = System.currentTimeMillis()): Long {
+        var ms = derived().stepMs["$questId/$stepId"] ?: 0
+        for (t in timers) if (t.questId == questId && t.stepId == stepId && t.startedAt != null) ms += liveSegment(t, now)
+        return ms
+    }
+
+    fun isStepRunning(questId: String, stepId: String) = timers.any { it.questId == questId && it.stepId == stepId && it.startedAt != null }
+
+    /** Play/pause the Pomodoro of one step (resumes a paused one, otherwise starts a new one). */
+    fun toggleStepPomodoro(questId: String, stepId: String, minutes: Int): Timer {
+        val mine = timers.filter { it.questId == questId && it.stepId == stepId }
+        mine.find { it.startedAt != null }?.let { pauseTimer(it.id); return it }
+        mine.find { it.kind == "pomodoro" && !it.finished && it.elapsedMs < it.durationMs }?.let { startTimer(it.id); return it }
+        return startPomodoro(questId, minutes, stepId)
+    }
+
+    // ---- goals (long-term; quests and single steps link to them) -------------
+
+    fun goals() = all("goals").sortedWith(compareBy<JSONObject>({ it.bool("done") }, { it.optLong("createdAt") }))
+    fun getGoal(id: String?) = if (id.isNullOrEmpty()) null else get("goals", id)
+
+    fun addGoal(title: String): JSONObject? {
+        val t = title.trim()
+        if (t.isEmpty()) return null
+        val g = put("goals", jobj("id" to uid(), "title" to t, "notes" to "", "icon" to "target", "targetDate" to null,
+            "done" to false, "doneAt" to null, "createdAt" to System.currentTimeMillis()))
+        changed()
+        return g
+    }
+
+    fun updateGoal(id: String, fields: Map<String, Any?>) { if (patch("goals", id, fields) != null) changed() }
+
+    /** Linked quests/steps keep their goalId; it simply no longer resolves. XP stays. */
+    fun deleteGoal(id: String) { del("goals", id); changed() }
+
+    /** Deadline pace for a goal with a targetDate (YYYY-MM-DD), or null without one. */
+    data class GoalPace(val daysLeft: Long, val expected: Float, val frac: Float, val onTrack: Boolean)
+
+    fun goalPace(id: String, now: Long = System.currentTimeMillis()): GoalPace? {
+        val g = getGoal(id) ?: return null
+        val target = g.str("targetDate").ifEmpty { return null }
+        val zone = ZoneId.systemDefault()
+        val end = LocalDate.parse(target).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val start = g.optLong("createdAt", now)
+        // deadline already passed when the goal was made → the whole window is due
+        val expected = if (end <= start) 1f else ((now - start).toFloat() / (end - start)).coerceIn(0f, 1f)
+        val frac = goalProgress(id, now).frac
+        val daysLeft = Math.floorDiv(end - now, DAY_MS)
+        return GoalPace(daysLeft, expected, frac, g.bool("done") || frac >= expected - 0.1f)
+    }
+
+    data class WeekReview(val focusThis: Long, val focusPrev: Long, val questsThis: Int, val questsPrev: Int,
+                          val goalsReached: Int, val streak: Int)
+
+    /** Last 7 days against the 7 before: focus time, quests done, goals reached, streak. */
+    fun weekReview(now: Long = System.currentTimeMillis()): WeekReview {
+        val today = LocalDate.now()
+        val thisFrom = dateKey(today.minusDays(6)); val prevFrom = dateKey(today.minusDays(13)); val prevTo = dateKey(today.minusDays(7))
+        fun bucket(k: String) = when { k >= thisFrom -> "this"; k >= prevFrom && k <= prevTo -> "prev"; else -> "" }
+        var fT = 0L; var fP = 0L; var qT = 0; var qP = 0; var gR = 0
+        for (s in all("sessions")) {
+            if (s.str("kind") == "break") continue
+            when (bucket(s.str("date"))) { "this" -> fT += s.optLong("durationMs"); "prev" -> fP += s.optLong("durationMs") }
+        }
+        for (l in all("ledger")) {
+            if (l.str("kind") != "quest") continue
+            when (bucket(dateKeyOf(l.optLong("at")))) { "this" -> qT++; "prev" -> qP++ }
+        }
+        for (g in all("goals")) if (g.optLong("doneAt") > 0 && bucket(dateKeyOf(g.optLong("doneAt"))) == "this") gR++
+        return WeekReview(fT, fP, qT, qP, gR, streak())
+    }
+
+    fun setGoalDone(id: String, done: Boolean) {
+        val g = getGoal(id) ?: return
+        if (g.bool("done") == done) return
+        val now = System.currentTimeMillis()
+        patch("goals", id, mapOf("done" to done, "doneAt" to if (done) now else null))
+        if (done) put("ledger", jobj("id" to "goal.$id", "at" to now, "amount" to GOAL_XP, "kind" to "goal", "ref" to id, "note" to g.str("title")))
+        else del("ledger", "goal.$id")
+        changed()
+    }
+
+    data class ExtProgress(val done: Int, val total: Int, val frac: Float, val text: String)
+
+    /** Progress reported by an integration (Physics RPG: exercises done of all), or null. Same rule as extension/store.js. */
+    fun extProgress(q: JSONObject): ExtProgress? {
+        val p = q.optJSONObject("progress") ?: return null
+        val total = p.optInt("total"); if (total <= 0 || steps(q).isNotEmpty()) return null
+        val done = p.optInt("done").coerceIn(0, total)
+        return ExtProgress(done, total, done.toFloat() / total, p.optString("text").ifEmpty { "$done/$total" })
+    }
+
+    data class GoalItems(val quests: List<JSONObject>, val steps: List<Pair<JSONObject, JSONObject>>)
+    data class GoalProgress(val done: Int, val total: Int, val frac: Float, val ms: Long)
+
+    /** Quests linked as a whole, plus single steps linked from quests that are not themselves linked. */
+    fun goalItems(goalId: String): GoalItems {
+        val qs = mutableListOf<JSONObject>()
+        val sts = mutableListOf<Pair<JSONObject, JSONObject>>()
+        for (q in quests) {
+            if (q.str("goalId") == goalId) { qs += q; continue }
+            for (st in steps(q)) if (st.str("goalId") == goalId) sts += q to st
+        }
+        return GoalItems(qs.sortedWith(compareBy<JSONObject>({ it.bool("done") }, { it.optLong("createdAt") })), sts)
+    }
+
+    /** An open quest with steps counts by its finished share. */
+    fun goalProgress(goalId: String, now: Long = System.currentTimeMillis()): GoalProgress {
+        val items = goalItems(goalId)
+        var done = 0; var share = 0f; var ms = 0L
+        for (q in items.quests) {
+            val st = steps(q)
+            if (q.bool("done")) done++
+            share += if (q.bool("done")) 1f else if (st.isNotEmpty()) st.count { it.bool("done") }.toFloat() / st.size
+                     else extProgress(q)?.frac ?: 0f
+            ms += questTimeMs(q, now)
+        }
+        for ((q, st) in items.steps) {
+            if (st.bool("done")) { done++; share += 1f }
+            ms += stepTimeMs(q.str("id"), st.str("id"), now)
+        }
+        val total = items.quests.size + items.steps.size
+        return GoalProgress(done, total, if (total > 0) share / total else 0f, ms)
+    }
+
     fun deleteQuest(id: String) {
         val now = System.currentTimeMillis()
-        for (t in timers) if (t.questId == id) { if (t.startedAt != null) credit(t, now); t.questId = null }
+        for (t in timers) if (t.questId == id) { if (t.startedAt != null) credit(t, now); t.questId = null; t.stepId = null }
         del("quests", id)
         changed()
     }
 
     fun clearCompleted() {
         for (q in quests.filter { it.bool("done") }) {
-            for (t in timers) if (t.questId == q.str("id")) t.questId = null
+            for (t in timers) if (t.questId == q.str("id")) { t.questId = null; t.stepId = null }
             del("quests", q.str("id"))
         }
         changed()
@@ -454,7 +646,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
 
     data class DayStat(val date: String, val focusMs: Long, val done: Int)
     data class Stats(val focusMs: Long, val xp: Int, val questsDone: Int, val pomodoros: Int,
-                     val byTopic: List<Pair<String, Long>>, val topQuests: List<Pair<String, Long>>,
+                     val byTopic: List<Pair<String, Long>>, val byGoal: List<Pair<String, Long>>, val topQuests: List<Pair<String, Long>>,
                      val daily: List<DayStat>, val streak: Int, val bestStreak: Int)
 
     fun stats(days: Int = 7): Stats {
@@ -463,6 +655,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         fun inRange(k: String) = from.isEmpty() || k >= from
         val byTopic = mutableMapOf<String, Long>()
         val byQuest = mutableMapOf<String, Long>()
+        val byGoal = mutableMapOf<String, Long>()
         var focus = 0L
         for (s in all("sessions")) {
             if (s.str("kind") == "break" || !inRange(s.str("date"))) continue
@@ -473,6 +666,11 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
             val topic = s.str("topic").ifEmpty { if (q != null && !q.bool("deleted")) q.str("topic") else "" }.ifEmpty { "No topic" }
             byTopic[topic] = (byTopic[topic] ?: 0) + ms
             if (qid.isNotEmpty()) byQuest[qid] = (byQuest[qid] ?: 0) + ms
+            if (q != null && !q.bool("deleted")) {
+                val sid = s.str("stepId")
+                val gid = q.str("goalId").ifEmpty { steps(q).find { it.str("id") == sid && sid.isNotEmpty() }?.str("goalId") ?: "" }
+                if (getGoal(gid) != null) byGoal[gid] = (byGoal[gid] ?: 0) + ms
+            }
         }
         var xp = 0; var done = 0; var pomos = 0
         for (l in all("ledger")) {
@@ -490,6 +688,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         }
         val title = { id: String -> colls.getValue("quests")[id]?.takeIf { !it.bool("deleted") }?.str("title") ?: "(deleted quest)" }
         return Stats(focus, xp, done, pomos, byTopic.entries.sortedByDescending { it.value }.map { it.key to it.value },
+            byGoal.entries.sortedByDescending { it.value }.map { (getGoal(it.key)?.str("title") ?: "(deleted goal)") to it.value },
             byQuest.entries.sortedByDescending { it.value }.take(5).map { title(it.key) to it.value }, daily, streak(), best)
     }
 
@@ -604,14 +803,14 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         t.startedAt = null
         if (seg < 1000) return
         val topic = t.questId?.let { getQuest(it)?.str("topic") }?.ifEmpty { null }
-        put("sessions", jobj("id" to uid(), "questId" to t.questId, "kind" to t.kind, "start" to now - seg, "end" to now,
+        put("sessions", jobj("id" to uid(), "questId" to t.questId, "stepId" to t.stepId, "kind" to t.kind, "start" to now - seg, "end" to now,
             "durationMs" to seg, "date" to dateKeyOf(now - seg), "topic" to topic))
     }
 
-    fun addTimer(mode: String, kind: String, durationMs: Long, questId: String?, label: String? = null): Timer {
+    fun addTimer(mode: String, kind: String, durationMs: Long, questId: String?, label: String? = null, stepId: String? = null): Timer {
         val q = questId?.let { getQuest(it) }
-        val t = Timer(uid(), label ?: q?.str("title") ?: if (mode == "stopwatch") "Stopwatch" else "Timer", mode, kind, durationMs,
-            questId, startedAt = System.currentTimeMillis())
+        val t = Timer(uid(), label ?: timerLabel(questId, stepId) ?: if (mode == "stopwatch") "Stopwatch" else "Timer", mode, kind, durationMs,
+            questId, startedAt = System.currentTimeMillis(), stepId = if (q != null) stepId else null)
         timers.add(0, t)
         changed()
         return t
@@ -653,6 +852,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         val t = getTimer(id) ?: return
         if (t.startedAt != null) { credit(t, System.currentTimeMillis()); t.startedAt = System.currentTimeMillis() }
         t.questId = questId
+        t.stepId = null
         val q = questId?.let { getQuest(it) }
         if (q != null && (t.kind == "stopwatch" || t.kind == "custom")) t.label = q.str("title")
         changed()
@@ -660,12 +860,41 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
 
     fun toggleQuestTimer(questId: String) {
         timers.find { it.questId == questId && it.startedAt != null }?.let { pauseTimer(it.id); return }
-        val existing = timers.find { it.questId == questId && it.mode == "stopwatch" }
+        val existing = timers.find { it.questId == questId && it.stepId == null && it.mode == "stopwatch" }
         if (existing != null) startTimer(existing.id) else addTimer("stopwatch", "stopwatch", 0, questId)
     }
 
-    fun startPomodoro(questId: String?, minutes: Int) =
-        addTimer("countdown", "pomodoro", minutes * 60_000L, questId, questId?.let { getQuest(it)?.str("title") } ?: "Focus")
+    /** "Quest" or "Quest › Step". */
+    fun timerLabel(questId: String?, stepId: String? = null): String? {
+        val q = questId?.let { getQuest(it) } ?: return null
+        val st = stepId?.let { sid -> steps(q).find { it.str("id") == sid } }
+        return if (st != null) "${q.str("title")} › ${st.str("title")}" else q.str("title")
+    }
+
+    fun startPomodoro(questId: String?, minutes: Int, stepId: String? = null) =
+        addTimer("countdown", "pomodoro", minutes * 60_000L, questId, timerLabel(questId, stepId) ?: "Focus", stepId)
+
+    data class FocusBlock(val id: String, val title: String, val questId: String?, val start: Long, val end: Long, val live: Boolean)
+
+    /**
+     * Pomodoro time on one day, for the calendar: finished or paused segments (synced
+     * sessions) plus running Pomodoros, drawn from their start to their planned end.
+     */
+    fun focusBlocks(key: String = dateKey()): List<FocusBlock> {
+        val out = mutableListOf<FocusBlock>()
+        for (s in all("sessions")) {
+            if (s.str("kind") != "pomodoro" || s.str("date") != key) continue
+            val qid = s.str("questId").ifEmpty { null }
+            out += FocusBlock(s.str("id"), timerLabel(qid, s.str("stepId").ifEmpty { null }) ?: "Focus", qid,
+                s.optLong("start"), s.optLong("end"), false)
+        }
+        for (t in timers) {
+            val st = t.startedAt ?: continue
+            if (t.kind != "pomodoro" || dateKeyOf(st) != key) continue
+            out += FocusBlock(t.id, t.label, t.questId, st, st + max(0, t.durationMs - t.elapsedMs), true)
+        }
+        return out.sortedBy { it.start }
+    }
 
     fun startBreak(minutes: Int) = addTimer("countdown", "break", minutes * 60_000L, null, "Break")
 

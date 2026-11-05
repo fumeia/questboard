@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
         android:name=".QuestboardApp"
@@ -42,5 +44,14 @@
             </intent-filter>
         </receiver>
         <receiver android:name=".net.InstallReceiver" android:exported="false" />
+        <!-- Keeps the running Pomodoro / timer visible in the notification shade while it runs. -->
+        <service
+            android:name=".sys.TimerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Shows the running focus timer (Pomodoro) with time left until the user stops it" />
+        </service>
     </application>
 </manifest>

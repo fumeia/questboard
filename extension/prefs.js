@@ -63,6 +63,7 @@ export default class QuestboardPrefs extends ExtensionPreferences {
         timers.add(spin('Pomodoro length', 'Minutes', 'pomodoro-minutes', 1, 180));
         timers.add(spin('Break length', 'Minutes', 'break-minutes', 1, 60));
         timers.add(toggle('Show running timer in the top bar', '', 'show-panel-timer'));
+        timers.add(toggle('Add finished Pomodoros to Google Calendar', 'Written to the default calendar (set when you add an event)', 'focus-to-calendar'));
         timers.add(toggle('Remind me when a scheduled quest starts', '', 'quest-reminders'));
         general.add(timers);
         const cal = new Adw.PreferencesGroup({

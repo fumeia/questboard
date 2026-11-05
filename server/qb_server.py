@@ -33,8 +33,9 @@ DATA_DIR = os.environ.get("QB_DATA", "/data")
 TOKEN = os.environ.get("QB_TOKEN", "")
 PORT = int(os.environ.get("QB_PORT", "8787"))
 MAX_LOG_ROWS = int(os.environ.get("QB_MAX_LOG_ROWS", "100000"))
+KEEP_RELEASES = int(os.environ.get("QB_KEEP_RELEASES", "3"))  # newest builds kept per platform; older files are deleted
 
-COLLECTIONS = {"quests", "habits", "checkins", "rewards", "ledger", "sessions", "prefs"}
+COLLECTIONS = {"quests", "habits", "checkins", "rewards", "ledger", "sessions", "goals", "prefs"}
 PLATFORMS = {"extension", "android"}
 ID_RE = re.compile(r"^[A-Za-z0-9_\-:.]{1,80}$")
 MAX_BODY = 300 * 1024 * 1024       # release uploads (authenticated only)
@@ -257,6 +258,21 @@ def do_state(q):
     return out
 
 
+def prune_releases(platform):
+    """Keep the newest KEEP_RELEASES builds of a platform; delete the APK files of the rest.
+    Called with _lock held and the database open. Phones only ever install the newest build."""
+    if KEEP_RELEASES <= 0:
+        return
+    old = db().execute("SELECT code, file FROM releases WHERE platform=? ORDER BY code DESC LIMIT -1 OFFSET ?",
+                       (platform, KEEP_RELEASES)).fetchall()
+    for code, fname in old:
+        try:
+            os.remove(os.path.join(DATA_DIR, "releases", fname))
+        except FileNotFoundError:
+            pass
+        db().execute("DELETE FROM releases WHERE platform=? AND code=?", (platform, code))
+
+
 def latest_release(platform):
     with _lock:
         row = db().execute(
@@ -419,6 +435,7 @@ class Handler(BaseHTTPRequestHandler):
                 with _lock:
                     db().execute("INSERT OR REPLACE INTO releases VALUES(?,?,?,?,?,?,?,?)",
                                  (plat, code, name, fname, sha, len(data), notes, now_ms()))
+                    prune_releases(plat)
                     db().commit()
                 return self._send(200, latest_release(plat))
             return self._send(404, {"error": "not found"})
