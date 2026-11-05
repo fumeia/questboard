@@ -495,7 +495,8 @@ export class Dashboard {
                 () => this._store.toggleQuestTimer(q.id)));
             fr.add_child(new St.Widget({x_expand: true}));
             if (q.link) {
-                fr.add_child(iconTextButton('qb-book', 'Open in Notion', 'qb-small', () => {
+                const label = q.source === 'physics-rpg' ? 'Open Physics RPG' : q.source === 'notion' ? 'Open in Notion' : 'Open link';
+                fr.add_child(iconTextButton('qb-book', label, 'qb-small', () => {
                     Gio.AppInfo.launch_default_for_uri(q.link, null);
                     this.ctx.closeMenu();
                 }));
