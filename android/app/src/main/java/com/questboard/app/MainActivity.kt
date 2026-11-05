@@ -56,6 +56,7 @@ import com.questboard.app.ui.QbTheme
 import com.questboard.app.ui.SettingsScreen
 import com.questboard.app.ui.ShopScreen
 import com.questboard.app.ui.ProgressScreen
+import com.questboard.app.sys.writeFocusEvent
 import com.questboard.app.ui.TimersScreen
 import com.questboard.app.ui.fmtSpent
 import com.questboard.app.ui.fmtTimer
