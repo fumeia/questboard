@@ -44,6 +44,7 @@ import com.questboard.app.data.levelInfo
 import com.questboard.app.ui.Bar
 import com.questboard.app.ui.C
 import com.questboard.app.ui.CalendarScreen
+import com.questboard.app.ui.GoalsScreen
 import com.questboard.app.ui.HSpace
 import com.questboard.app.ui.HabitsScreen
 import com.questboard.app.ui.IconBtn
@@ -138,6 +139,7 @@ class MainActivity : ComponentActivity() {
                     when (tab.value) {
                         "matrix" -> MatrixScreen(app, v, now)
                         "habits" -> HabitsScreen(app, v)
+                        "goals" -> GoalsScreen(app, v, now)
                         "calendar" -> CalendarScreen(app, v, permVersion.value)
                         "timers" -> TimersScreen(app, v, now)
                         "shop" -> ShopScreen(app, v)
@@ -197,7 +199,8 @@ class MainActivity : ComponentActivity() {
     private fun BottomNav() {
         NavigationBar(containerColor = C.surface, tonalElevation = 0.dp) {
             for ((id, icon, label) in listOf(
-                Triple("matrix", "grid", "Matrix"), Triple("habits", "repeat", "Habits"), Triple("calendar", "list", "Calendar"),
+                Triple("matrix", "grid", "Matrix"), Triple("goals", "star", "Goals"), Triple("habits", "repeat", "Habits"),
+                Triple("calendar", "list", "Calendar"),
                 Triple("timers", "stopwatch", "Timers"), Triple("shop", "shop", "Shop"),
             )) {
                 NavigationBarItem(

@@ -14,6 +14,8 @@ What's inside:
 |---|---|---|
 | Eisenhower matrix (Do first / Schedule / Delegate / Eliminate) with quests | ✔ | ✔ |
 | XP, levels, daily streak | ✔ | ✔ |
+| Long-term goals: link whole quests or single steps, progress + time per goal, +100 XP when reached | ✔ | ✔ |
+| Steps inside quests, each with its own Pomodoro timer and time tracking | ✔ | ✔ |
 | Habits with weekly grid, streak bonus XP (+20 % from 3 days, +50 % from 7) | ✔ | ✔ |
 | Rewards shop: spend coins (= XP earned − spent) on default or your own rewards | ✔ | ✔ |
 | Google Calendar day view, create / edit / delete events | ✔ (via GNOME Online Accounts) | ✔ (phone calendar) |

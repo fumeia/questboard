@@ -34,7 +34,7 @@ TOKEN = os.environ.get("QB_TOKEN", "")
 PORT = int(os.environ.get("QB_PORT", "8787"))
 MAX_LOG_ROWS = int(os.environ.get("QB_MAX_LOG_ROWS", "100000"))
 
-COLLECTIONS = {"quests", "habits", "checkins", "rewards", "ledger", "sessions", "prefs"}
+COLLECTIONS = {"quests", "habits", "checkins", "rewards", "ledger", "sessions", "goals", "prefs"}
 PLATFORMS = {"extension", "android"}
 ID_RE = re.compile(r"^[A-Za-z0-9_\-:.]{1,80}$")
 MAX_BODY = 300 * 1024 * 1024       # release uploads (authenticated only)

@@ -55,4 +55,35 @@ const st = desk.stats(7);
 assert(st.byTopic.find(t => t.topic === 'Analysis II').ms >= 30 * 60000 - 100, 'topic time');
 assert(desk.topics().includes('Analysis II'));
 assert.equal(st.daily.length, 7);
+// goals: quests + single steps link to a long-term goal; progress, time and XP
+const goal = desk.addGoal('Pass the semester');
+const gq = desk.addQuest('Exam prep', 'q2', null, {goalId: goal.id});
+const other = desk.addQuest('Sheet 6', 'q1'); desk.addStep(other.id, 'Ex 1'); desk.addStep(other.id, 'Ex 2');
+const [s1, s2] = desk.getQuest(other.id).steps;
+desk.setStepGoal(other.id, s1.id, goal.id);
+let gi = desk.goalItems(goal.id); assert.equal(gi.quests.length, 1); assert.equal(gi.steps.length, 1);
+assert.equal(desk.goalProgress(goal.id).total, 2); assert.equal(desk.goalProgress(goal.id).done, 0);
+// step pomodoro: its own timer, time lands on the step, the quest and the goal
+const pt = desk.toggleStepPomodoro(other.id, s1.id, 25);
+assert.equal(pt.stepId, s1.id); assert.equal(pt.label, 'Sheet 6 › Ex 1'); assert(desk.isStepRunning(other.id, s1.id));
+assert(!desk.isStepRunning(other.id, s2.id));
+desk.runningTimers()[0].startedAt -= 25 * 60000; const xpP = desk.xp; desk.tick();
+assert.equal(desk.xp, xpP + 10, 'step pomodoro pays');
+assert(Math.abs(desk.stepTimeMs(other.id, s1.id) - 25 * 60000) < 100, 'step time');
+assert.equal(desk.stepTimeMs(other.id, s2.id), 0);
+assert(Math.abs(desk.questTimeMs(desk.getQuest(other.id)) - 25 * 60000) < 100, 'counts for the quest too');
+assert(Math.abs(desk.goalProgress(goal.id).ms - 25 * 60000) < 100, 'and for the goal');
+desk.toggleStep(other.id, s1.id); desk.setDone(gq.id, true);
+assert.equal(desk.goalProgress(goal.id).done, 2); assert.equal(desk.goalProgress(goal.id).frac, 1);
+const xpG = desk.xp; desk.setGoalDone(goal.id, true); assert.equal(desk.xp, xpG + 100, 'goal XP');
+await sync(desk); await sync(phone);
+assert.equal(phone.goals().length, 1, 'goal synced'); assert.equal(phone.goalProgress(goal.id).total, 2);
+assert(Math.abs(phone.stepTimeMs(other.id, s1.id) - 25 * 60000) < 100, 'step session synced');
+assert.equal(phone.xp, desk.xp);
+phone.setGoalDone(goal.id, false); await sync(phone); await sync(desk); assert.equal(desk.xp, xpG, 'un-achieving refunds');
+desk.deleteGoal(goal.id); assert.equal(desk.goals().length, 0); assert.equal(desk.goalProgress(goal.id).total, 2, 'links kept, harmless');
+// deleting a step detaches its timer but keeps it on the quest
+desk.toggleStepPomodoro(other.id, s2.id, 25); desk.deleteStep(other.id, s2.id);
+assert.equal(desk.runningTimers()[0].stepId, null); assert.equal(desk.runningTimers()[0].questId, other.id);
+desk.removeTimer(desk.runningTimers()[0].id);
 console.log('level', levelInfo(desk.xp), 'balance', desk.balance, '\nALL SYNC TESTS PASSED');

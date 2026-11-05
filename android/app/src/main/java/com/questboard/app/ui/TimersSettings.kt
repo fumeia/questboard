@@ -97,8 +97,8 @@ private fun TimerCard(app: QuestboardApp, t: Timer, now: Long, picking: Boolean,
             Column(Modifier.weight(1f)) {
                 Muted(listOf(when (t.kind) { "pomodoro" -> "Pomodoro"; "break" -> "Break"; "stopwatch" -> "Stopwatch"; else -> "Countdown" },
                     if (t.finished) "done" else "").filter { it.isNotEmpty() }.joinToString(" · "), size = 12)
-                if (t.kind != "break") Text(t.questId?.let { s.getQuest(it)?.str("title") } ?: "Link quest…", fontSize = 13.sp,
-                    color = if (t.questId != null) C.text else C.muted, modifier = Modifier.clickable(onClick = onPick), maxLines = 1)
+                if (t.kind != "break") Text(t.questId?.let { s.timerLabel(it, t.stepId) } ?: "Link quest…", fontSize = 13.sp,
+                    color = if (t.questId != null) C.text else C.muted, modifier = Modifier.clickable(onClick = onPick), maxLines = 2)
             }
             Box(Modifier.size(46.dp).clip(CircleShape).background(if (running) C.green.copy(alpha = 0.3f) else C.surface).clickable { s.toggleTimer(t.id) },
                 contentAlignment = Alignment.Center) { QbIcon(if (running) "pause" else "play", if (running) C.green else C.text, 20.dp) }

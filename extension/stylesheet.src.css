@@ -320,7 +320,7 @@
 .qb-linked { padding: 4px 6px; border-radius: 8px; background-color: rgba(46,194,126,0.15); }
 
 /* ===================== stats & topics ===================== */
-.qb-tab { padding: 4px 4px; font-size: 0.92em; }
+.qb-tab { padding: 4px 2px; font-size: 0.85em; }
 .qb-tab .qb-iconlabel { spacing: 4px; }
 .qb-stats-body { spacing: 8px; padding: 2px 4px 10px 2px; }
 .qb-tiles { spacing: 6px; }
@@ -337,3 +337,16 @@
 .qb-topic-name { font-weight: bold; font-size: 0.9em; }
 .qb-topic-fill { height: 4px; border-radius: 2px; background-color: #3584e4; }
 .qb-topic-entry { min-width: 120px; }
+
+/* ===================== goals ===================== */
+.qb-goal-list { spacing: 8px; padding: 6px 4px 10px 2px; }
+.qb-goal { spacing: 4px; padding: 8px; border-radius: 10px; background-color: rgba(255,255,255,0.06); }
+.qb-goal.done { background-color: rgba(248,228,92,0.08); }
+.qb-goal-title { font-weight: bold; }
+.qb-goal.done .qb-goal-title { color: rgba(255,255,255,0.55); }
+.qb-goal-pct { font-size: 0.85em; font-weight: bold; color: rgba(255,255,255,0.55); font-feature-settings: "tnum"; }
+.qb-goal-pct.full { color: #2ec27e; }
+.qb-goal-fill { height: 4px; border-radius: 2px; background-color: #2ec27e; }
+.qb-goal-fill.done { background-color: #f8e45c; }
+.qb-goal-items { padding: 2px 0; }
+.qb-step-goal { font-size: 0.75em; padding: 1px 6px; max-width: 110px; }
