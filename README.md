@@ -47,7 +47,7 @@ docker compose up -d --build
 curl http://localhost:8787/api/health                        # → {"ok": true, ...}
 ```
 
-- Data lives in `server/data/` (SQLite + published releases). Back that folder up.
+- Data lives in `server/data/` (SQLite + published releases). Back that folder up. The server keeps only the newest 3 app builds per platform (`QB_KEEP_RELEASES`, set to 0 to keep all).
 - Port 8787 can be changed in `docker-compose.yml` (left side of `"8787:8787"`).
 - **Reaching it from outside your home network:** easiest is Tailscale on server + laptop + phone, then use
   the server's Tailscale IP. If you already run a reverse proxy (Caddy/Traefik/nginx) for your other
