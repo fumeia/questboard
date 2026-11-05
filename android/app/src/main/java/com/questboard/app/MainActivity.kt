@@ -124,6 +124,7 @@ class MainActivity : ComponentActivity() {
             while (running) {
                 now = System.currentTimeMillis()
                 app.store.tick(now).forEach { t ->
+                    writeFocusEvent(app, t)
                     app.notifier.alert(t.id.hashCode(), if (t.kind == "pomodoro") "Pomodoro complete · +10 XP" else "Timer finished", t.label)
                 }
                 delay(1000)

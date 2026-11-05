@@ -611,6 +611,16 @@ export class Store {
         this._changed();
     }
 
+    /** Extend a running countdown (e.g. "+5 min" from the notification). */
+    extendTimer(id, ms) {
+        const t = this.getTimer(id);
+        if (!t || t.mode !== 'countdown' || !(ms > 0))
+            return;
+        t.durationMs += ms;
+        t.finished = false;
+        this._changed();
+    }
+
     stepTimeMs(questId, stepId, now = Date.now()) {
         let ms = this._derived().stepMs[`${questId}/${stepId}`] ?? 0;
         for (const t of this.data.timers)
@@ -668,6 +678,47 @@ export class Store {
     deleteGoal(id) {
         this._del('goals', id); // XP for reaching it stays
         this._changed();
+    }
+
+    /**
+     * Deadline pace for a goal with a targetDate (YYYY-MM-DD): how much of the time from
+     * creation to the deadline has passed, versus how much of the goal is done.
+     * Returns null without a deadline.
+     */
+    goalPace(id, now = Date.now()) {
+        const g = this.getGoal(id);
+        if (!g?.targetDate)
+            return null;
+        const [y, m, d] = g.targetDate.split('-').map(Number);
+        const end = new Date(y, m - 1, d + 1).getTime(); // end of the target day
+        const start = g.createdAt ?? now;
+        // deadline already passed when the goal was made → the whole window is due
+        const expected = end <= start ? 1 : Math.min(1, Math.max(0, (now - start) / (end - start)));
+        const frac = this.goalProgress(id, now).frac;
+        const daysLeft = Math.floor((end - now) / DAY_MS);
+        return {daysLeft, expected, frac, onTrack: g.done || frac >= expected - 0.1};
+    }
+
+    /** Last 7 days against the 7 before: focus time, quests done, goals reached, streak. */
+    weekReview(now = new Date()) {
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const key = n => dateKey(new Date(today.getFullYear(), today.getMonth(), today.getDate() - n));
+        const thisFrom = key(6), prevFrom = key(13), prevTo = key(7);
+        const r = {focusThis: 0, focusPrev: 0, questsThis: 0, questsPrev: 0, goalsReached: 0, streak: this.streak()};
+        const bucket = k => (k >= thisFrom ? 'this' : k >= prevFrom && k <= prevTo ? 'prev' : null);
+        for (const s of this.all('sessions')) {
+            if (s.kind === 'break') continue;
+            const b = bucket(s.date);
+            if (b === 'this') r.focusThis += s.durationMs; else if (b === 'prev') r.focusPrev += s.durationMs;
+        }
+        for (const l of this.all('ledger')) {
+            if (l.kind !== 'quest') continue;
+            const b = bucket(dateKey(new Date(l.at)));
+            if (b === 'this') r.questsThis++; else if (b === 'prev') r.questsPrev++;
+        }
+        for (const g of this.all('goals'))
+            if (g.doneAt && bucket(dateKey(new Date(g.doneAt))) === 'this') r.goalsReached++;
+        return r;
     }
 
     setGoalDone(id, done) {

@@ -91,7 +91,7 @@ fun jobj(vararg pairs: Pair<String, Any?>): JSONObject = JSONObject().apply {
 
 /** Device-local live timer. */
 data class Timer(
-    val id: String, var label: String, val mode: String, val kind: String, val durationMs: Long,
+    val id: String, var label: String, val mode: String, val kind: String, var durationMs: Long,
     var questId: String?, var elapsedMs: Long = 0, var startedAt: Long? = null, var finished: Boolean = false,
     var stepId: String? = null,
 ) {
@@ -468,6 +468,15 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         changed()
     }
 
+    /** Extend a running countdown (e.g. "+5 min" from the notification). */
+    fun extendTimer(id: String, ms: Long) {
+        val t = getTimer(id) ?: return
+        if (t.mode != "countdown" || ms <= 0) return
+        t.durationMs += ms
+        t.finished = false
+        changed()
+    }
+
     fun stepTimeMs(questId: String, stepId: String, now: Long = System.currentTimeMillis()): Long {
         var ms = derived().stepMs["$questId/$stepId"] ?: 0
         for (t in timers) if (t.questId == questId && t.stepId == stepId && t.startedAt != null) ms += liveSegment(t, now)
@@ -502,6 +511,43 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
 
     /** Linked quests/steps keep their goalId; it simply no longer resolves. XP stays. */
     fun deleteGoal(id: String) { del("goals", id); changed() }
+
+    /** Deadline pace for a goal with a targetDate (YYYY-MM-DD), or null without one. */
+    data class GoalPace(val daysLeft: Long, val expected: Float, val frac: Float, val onTrack: Boolean)
+
+    fun goalPace(id: String, now: Long = System.currentTimeMillis()): GoalPace? {
+        val g = getGoal(id) ?: return null
+        val target = g.str("targetDate").ifEmpty { return null }
+        val zone = ZoneId.systemDefault()
+        val end = LocalDate.parse(target).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val start = g.optLong("createdAt", now)
+        // deadline already passed when the goal was made → the whole window is due
+        val expected = if (end <= start) 1f else ((now - start).toFloat() / (end - start)).coerceIn(0f, 1f)
+        val frac = goalProgress(id, now).frac
+        val daysLeft = Math.floorDiv(end - now, DAY_MS)
+        return GoalPace(daysLeft, expected, frac, g.bool("done") || frac >= expected - 0.1f)
+    }
+
+    data class WeekReview(val focusThis: Long, val focusPrev: Long, val questsThis: Int, val questsPrev: Int,
+                          val goalsReached: Int, val streak: Int)
+
+    /** Last 7 days against the 7 before: focus time, quests done, goals reached, streak. */
+    fun weekReview(now: Long = System.currentTimeMillis()): WeekReview {
+        val today = LocalDate.now()
+        val thisFrom = dateKey(today.minusDays(6)); val prevFrom = dateKey(today.minusDays(13)); val prevTo = dateKey(today.minusDays(7))
+        fun bucket(k: String) = when { k >= thisFrom -> "this"; k >= prevFrom && k <= prevTo -> "prev"; else -> "" }
+        var fT = 0L; var fP = 0L; var qT = 0; var qP = 0; var gR = 0
+        for (s in all("sessions")) {
+            if (s.str("kind") == "break") continue
+            when (bucket(s.str("date"))) { "this" -> fT += s.optLong("durationMs"); "prev" -> fP += s.optLong("durationMs") }
+        }
+        for (l in all("ledger")) {
+            if (l.str("kind") != "quest") continue
+            when (bucket(dateKeyOf(l.optLong("at")))) { "this" -> qT++; "prev" -> qP++ }
+        }
+        for (g in all("goals")) if (g.optLong("doneAt") > 0 && bucket(dateKeyOf(g.optLong("doneAt"))) == "this") gR++
+        return WeekReview(fT, fP, qT, qP, gR, streak())
+    }
 
     fun setGoalDone(id: String, done: Boolean) {
         val g = getGoal(id) ?: return

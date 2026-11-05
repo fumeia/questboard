@@ -62,8 +62,8 @@ class Notifier(private val ctx: Context) {
         val s = app.store
         val elapsed = s.timerElapsed(t, now)
         val kind = when (t.kind) { "pomodoro" -> "Pomodoro"; "break" -> "Break"; "stopwatch" -> "Stopwatch"; else -> "Countdown" }
-        val pause = PendingIntent.getBroadcast(ctx, t.id.hashCode(),
-            Intent(ctx, AlarmReceiver::class.java).setAction(Alarms.ACTION_PAUSE).putExtra("id", t.id),
+        fun action(code: String, act: String) = PendingIntent.getBroadcast(ctx, t.id.hashCode() * 31 + code.hashCode(),
+            Intent(ctx, AlarmReceiver::class.java).setAction(act).putExtra("id", t.id),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val b = NotificationCompat.Builder(ctx, CH_TIMER)
             .setSmallIcon(R.drawable.qb_stopwatch)
@@ -73,7 +73,9 @@ class Notifier(private val ctx: Context) {
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .setContentIntent(openApp("timers"))
             .setUsesChronometer(true).setShowWhen(true)
-            .addAction(0, "Pause", pause)
+            .addAction(0, "Pause", action("pause", Alarms.ACTION_PAUSE))
+            .addAction(0, "+5 min", action("extend", Alarms.ACTION_EXTEND))
+            .addAction(0, "Stop", action("stop", Alarms.ACTION_STOP))
         if (t.mode == "countdown" && t.durationMs > 0) {
             val left = s.timerRemaining(t, now)
             val passedMin = elapsed / 60_000
@@ -165,6 +167,8 @@ class Alarms(private val ctx: Context) {
         const val ACTION_TIMER = "com.questboard.TIMER"
         const val ACTION_REMIND = "com.questboard.REMIND"
         const val ACTION_PAUSE = "com.questboard.PAUSE"
+        const val ACTION_EXTEND = "com.questboard.EXTEND"
+        const val ACTION_STOP = "com.questboard.STOP"
     }
 }
 
@@ -231,12 +235,27 @@ class TimerService : Service() {
     }
 }
 
+/**
+ * Opt-in: a finished Pomodoro is written to your calendar as "Focus · <quest>". The event covers the
+ * run time before it finished; if you paused in between, the event also spans that pause.
+ */
+fun writeFocusEvent(app: QuestboardApp, t: Timer) {
+    if (t.kind != "pomodoro" || !app.settings.focusToCalendar) return
+    val end = System.currentTimeMillis()
+    val start = end - t.durationMs
+    val cals = runCatching { app.calendar.calendars() }.getOrDefault(emptyList()).filter { it.writable }
+    val cid = app.settings.calendarId.takeIf { id -> cals.any { it.id == id } } ?: cals.firstOrNull()?.id ?: return
+    runCatching { app.calendar.create(cid, "Focus · ${t.label}", start, end, false, "", "Pomodoro from Questboard") }
+        .onFailure { app.log.exception("focus", it) }
+}
+
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val app = context.applicationContext as QuestboardApp
         when (intent.action) {
             Alarms.ACTION_TIMER -> {
                 for (t in app.store.tick()) {
+                    writeFocusEvent(app, t)
                     val (title, body) = when (t.kind) {
                         "pomodoro" -> "Pomodoro complete · +10 XP" to "Nice work on “${t.label}”. Time for a break."
                         "break" -> "Break over" to "Back to your quests."
@@ -246,7 +265,9 @@ class AlarmReceiver : BroadcastReceiver() {
                 }
                 app.alarms.refresh(app)
             }
-            Alarms.ACTION_PAUSE -> intent.getStringExtra("id")?.let { app.store.pauseTimer(it) } // → onLocalChange → refresh
+            Alarms.ACTION_PAUSE -> intent.getStringExtra("id")?.let { app.store.toggleTimer(it) } // → onLocalChange → refresh
+            Alarms.ACTION_EXTEND -> intent.getStringExtra("id")?.let { app.store.extendTimer(it, 5 * 60_000L) }
+            Alarms.ACTION_STOP -> intent.getStringExtra("id")?.let { app.store.removeTimer(it) }
             Alarms.ACTION_REMIND -> {
                 val q = intent.getStringExtra("id")?.let { app.store.getQuest(it) } ?: return
                 if (q.optBoolean("done")) return

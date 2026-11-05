@@ -45,6 +45,7 @@ class Settings(context: Context) {
     var dayStartHour: Int get() = p.getInt("dayStart", 8); set(v) = p.edit().putInt("dayStart", v).apply()
     var reminders: Boolean get() = p.getBoolean("reminders", true); set(v) = p.edit().putBoolean("reminders", v).apply()
     var calendarId: Long get() = p.getLong("calendarId", -1); set(v) = p.edit().putLong("calendarId", v).apply()
+    var focusToCalendar: Boolean get() = p.getBoolean("focusToCal", false); set(v) = p.edit().putBoolean("focusToCal", v).apply()
     val configured get() = serverUrl.isNotEmpty() && token.isNotEmpty()
 }
 

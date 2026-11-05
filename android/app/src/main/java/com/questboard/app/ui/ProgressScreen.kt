@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -51,12 +50,26 @@ fun ProgressScreen(app: QuestboardApp, v: Int, now: Long) {
     val st = remember(v, range) { s.stats(range) }
     val total = st.byTopic.sumOf { it.second }.coerceAtLeast(1)
     val goals = remember(v) { s.goals() }
+    val review = remember(v) { s.weekReview(now) }
     var newGoal by remember { mutableStateOf("") }
     var expanded by remember { mutableStateOf(setOf<String>()) }
     var openQuest by remember { mutableStateOf<String?>(null) }
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
-            Text("Goals", fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.padding(top = 10.dp))
+            Text("This week", fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.padding(top = 10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 6.dp)) {
+                for ((icon, value, caption) in listOf(
+                    Triple("stopwatch", dur(review.focusThis), "focus · was ${dur(review.focusPrev)}"),
+                    Triple("check", "${review.questsThis}", "quests · was ${review.questsPrev}"),
+                    Triple("star", "${review.goalsReached}", "goals reached"),
+                    Triple("flame", "${review.streak}d", "streak"),
+                )) Column(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(C.card).padding(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) { QbIcon(icon, C.muted, 13.dp); HSpace(4.dp)
+                        Text(value, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp) }
+                    Muted(caption, size = 10)
+                }
+            }
+            Text("Goals", fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.padding(top = 14.dp))
             OutlinedTextField(newGoal, { newGoal = it }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
                 placeholder = { Text("New long-term goal, e.g. Pass the semester") },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -132,6 +145,3 @@ fun ProgressScreen(app: QuestboardApp, v: Int, now: Long) {
     }
     openQuest?.let { id -> QuestSheet(app, id, v, now) { openQuest = null } }
 }
-
-@Suppress("unused")
-private val keep = Modifier.fillMaxHeight()

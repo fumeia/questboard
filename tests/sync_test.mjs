@@ -122,4 +122,20 @@ assert.equal(phone.getQuest('rpg.qm').topic, 'Quantenmechanik'); assert(phone.to
 process.env.QB_DIR = process.env.T+'/rpgonly'; const only = new Store();
 only.applyRemote([{c:'ledger',r:{id:`rpg.qm.${k(noon)}`,updatedAt:now,at:noon.getTime(),amount:75,kind:'rpg'}}], 1, {});
 assert.equal(only.xp, 75); assert.equal(only.streak(), 1, 'a day with only game XP counts for the streak');
+// goal deadlines, pace and the weekly review
+{
+    const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const dl = desk.addGoal('Deadline goal'); desk.updateGoal(dl.id, {targetDate: fmt(new Date(Date.now() + 10 * 86400000))});
+    const p1 = desk.goalPace(dl.id); assert.equal(p1.daysLeft, 10, 'days left'); assert(p1.onTrack, 'fresh goal is on track');
+    const past = desk.addGoal('Missed goal'); desk.updateGoal(past.id, {targetDate: fmt(new Date(Date.now() - 3 * 86400000))});
+    const p2 = desk.goalPace(past.id); assert(p2.daysLeft <= 0, 'overdue'); assert(!p2.onTrack, 'overdue and not done → off track');
+    assert.equal(desk.goalPace(desk.addGoal('No deadline').id), null);
+    desk.setGoalDone(past.id, true); assert(desk.goalPace(past.id).onTrack, 'reached goals stay on track');
+    const wr = desk.weekReview();
+    assert(wr.focusThis >= 25 * 60000, 'focus this week counts today'); assert(wr.questsThis >= 1, 'quests this week');
+    assert(wr.goalsReached >= 1, 'goal reached this week'); assert.equal(typeof wr.streak, 'number');
+    const ex = desk.startPomodoro(null, 1); desk.extendTimer(ex.id, 5 * 60000);
+    assert.equal(desk.getTimer(ex.id).durationMs, 6 * 60000, 'extend adds to the countdown');
+    desk.removeTimer(ex.id);
+}
 console.log('level', levelInfo(desk.xp), 'balance', desk.balance, '\nALL SYNC TESTS PASSED');

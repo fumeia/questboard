@@ -374,9 +374,28 @@ export class ProgressPage {
         this.actor.add_child(scroll(this._body, {y_expand: true}));
     }
 
+    /** Last 7 days against the 7 before. */
+    _renderReview(b, now) {
+        const r = this._store.weekReview(new Date(now));
+        const tiles = box({style_class: 'qb-tiles'});
+        const tile = (ic, value, caption, prev) => {
+            const t = box({vertical: true, style_class: 'qb-tile', x_expand: true});
+            t.add_child(iconLabel(ic, value, 'qb-tile-value'));
+            t.add_child(label(prev === null ? caption : `${caption} · before ${prev}`, 'qb-muted'));
+            tiles.add_child(t);
+        };
+        tile('qb-stopwatch', fmtSpent(r.focusThis) || '0m', 'focus', fmtSpent(r.focusPrev) || '0m');
+        tile('qb-check', String(r.questsThis), 'quests done', String(r.questsPrev));
+        tile('qb-star', String(r.goalsReached), 'goals reached', null);
+        tile('qb-flame', `${r.streak}d`, 'streak', null);
+        b.add_child(tiles);
+    }
+
     render(now = Date.now()) {
         const b = this._body;
         clearChildren(b);
+        b.add_child(label('This week', 'qb-section-title'));
+        this._renderReview(b, now);
         b.add_child(label('Goals', 'qb-section-title'));
         this._goals.render(b, now);
         b.add_child(label('Stats', 'qb-section-title'));
@@ -521,6 +540,12 @@ class GoalsSection {
         const spent = fmtSpent(p.ms);
         tb.add_child(label([p.total ? `${p.done}/${p.total} done` : 'nothing linked yet', spent, g.done ? `reached · +${GOAL_XP} XP` : '']
             .filter(Boolean).join(' · '), 'qb-muted'));
+        const pace = this._store.goalPace(g.id, now);
+        if (pace && !g.done) {
+            const when = pace.daysLeft >= 0 ? `${pace.daysLeft} day${pace.daysLeft === 1 ? '' : 's'} left` : `${-pace.daysLeft} day${pace.daysLeft === -1 ? '' : 's'} over`;
+            tb.add_child(label(`${when} · ${pace.onTrack ? 'on track' : 'behind pace'}`,
+                pace.onTrack ? 'qb-muted' : 'qb-due urgent'));
+        }
         head.add_child(button({style_class: 'qb-quest-title-btn', child: tb, x_expand: true}, () => {
             if (open)
                 this._open.delete(g.id);
@@ -561,6 +586,22 @@ class GoalsSection {
 
         const act = box({style_class: 'qb-actions-row'});
         if (!g.done) {
+            // deadline: a few quick choices (the goal's targetDate)
+            const dl = box({style_class: 'qb-actions-row qb-wrap-row'});
+            dl.add_child(label('Deadline', 'qb-muted'));
+            const today = new Date();
+            for (const [txt, days] of [['+1 week', 7], ['+1 month', 30], ['+3 months', 91]]) {
+                const key = dateKey(addDays(today, days));
+                const btn = textButton(txt, 'qb-small qb-dur', () => this._store.updateGoal(g.id, {targetDate: key}));
+                if (g.targetDate === key)
+                    btn.add_style_pseudo_class('checked');
+                dl.add_child(btn);
+            }
+            if (g.targetDate) {
+                dl.add_child(label(fmtDate(new Date(`${g.targetDate}T12:00`), '%a %e %b'), 'qb-muted'));
+                dl.add_child(iconButton('edit-clear-symbolic', 'qb-flat qb-tiny', () => this._store.updateGoal(g.id, {targetDate: null}), 'Clear deadline'));
+            }
+            card.add_child(dl);
             act.add_child(entry('Add a quest for this goal — Enter', '', (txt, e) => {
                 if (this._store.addQuest(txt, 'q2', null, {goalId: g.id}))
                     e.set_text('');

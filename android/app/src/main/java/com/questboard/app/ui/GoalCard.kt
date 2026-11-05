@@ -33,8 +33,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.questboard.app.QuestboardApp
 import com.questboard.app.data.GOAL_XP
+import com.questboard.app.data.dateKey
 import com.questboard.app.data.str
 import org.json.JSONObject
+import java.time.LocalDate
 
 /** One long-term goal on the Progress screen: progress, time, linked quests and steps. */
 @Composable
@@ -57,6 +59,13 @@ fun GoalCard(app: QuestboardApp, g: JSONObject, now: Long, open: Boolean, onTogg
                 val spent = fmtSpent(p.ms)
                 Muted(listOfNotNull(if (p.total > 0) "${p.done}/${p.total} done" else "nothing linked yet", spent.ifEmpty { null },
                     if (done) "reached · +$GOAL_XP XP" else null).joinToString(" · "), size = 12)
+                val pace = s.goalPace(id, now)
+                if (pace != null && !done) {
+                    val when_ = if (pace.daysLeft >= 0) "${pace.daysLeft} day${if (pace.daysLeft == 1L) "" else "s"} left"
+                        else "${-pace.daysLeft} day${if (pace.daysLeft == -1L) "" else "s"} over"
+                    Text("$when_ · ${if (pace.onTrack) "on track" else "behind pace"}", fontSize = 12.sp,
+                        color = if (pace.onTrack) C.muted else C.red)
+                }
             }
             Text("${(p.frac * 100).toInt()} %", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (p.frac >= 1f) C.green else C.muted)
         }
@@ -81,6 +90,19 @@ fun GoalCard(app: QuestboardApp, g: JSONObject, now: Long, open: Boolean, onTogg
                 Muted("step of ${q.str("title")}", size = 11)
             }
             Muted(fmtSpent(s.stepTimeMs(q.str("id"), st.str("id"), now)), size = 11)
+        }
+        if (!done) Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Muted("Deadline", size = 12)
+            for ((label, days) in listOf("+1 wk" to 7L, "+1 mo" to 30L, "+3 mo" to 91L)) {
+                val key = dateKey(LocalDate.now().plusDays(days))
+                Pill(label, if (g.str("targetDate") == key) C.accent else C.card) {
+                    s.updateGoal(id, mapOf("targetDate" to key))
+                }
+            }
+            if (g.str("targetDate").isNotEmpty()) {
+                Muted(g.str("targetDate"), size = 12)
+                IconBtn("close", { s.updateGoal(id, mapOf("targetDate" to null)) }, C.muted, 14.dp)
+            }
         }
         if (!done) OutlinedTextField(newQuest, { newQuest = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
             placeholder = { Text("Add a quest for this goal") },

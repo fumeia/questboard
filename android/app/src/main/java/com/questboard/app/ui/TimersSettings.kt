@@ -142,6 +142,7 @@ fun SettingsScreen(app: QuestboardApp, onBack: () -> Unit) {
     var remote by remember { mutableStateOf(st.remoteLogs) }
     var auto by remember { mutableStateOf(st.autoUpdate) }
     var remind by remember { mutableStateOf(st.reminders) }
+    var focusCal by remember { mutableStateOf(st.focusToCalendar) }
     var pomo by remember { mutableStateOf(st.pomodoroMin.toString()) }
     var brk by remember { mutableStateOf(st.breakMin.toString()) }
     var logs by remember { mutableStateOf(app.log.recent.takeLast(80)) }
@@ -192,6 +193,7 @@ fun SettingsScreen(app: QuestboardApp, onBack: () -> Unit) {
             }
         }
         item { ToggleRow("Remind me when a scheduled quest starts", remind) { remind = it; st.reminders = it } }
+        item { ToggleRow("Add finished Pomodoros to Google Calendar", focusCal) { focusCal = it; st.focusToCalendar = it } }
         item { SectionTitle("Updates") }
         item {
             Muted("Installed: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})", size = 13)
