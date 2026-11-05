@@ -512,8 +512,8 @@
 .qb-light .qb-topic-fill { height: 4px; border-radius: 2px; background-color: #3584e4; }
 .qb-dark .qb-topic-entry { min-width: 120px; }
 .qb-light .qb-topic-entry { min-width: 120px; }
-.qb-dark .qb-goal-list { spacing: 8px; padding: 6px 4px 10px 2px; }
-.qb-light .qb-goal-list { spacing: 8px; padding: 6px 4px 10px 2px; }
+.qb-dark .qb-goal-list { spacing: 8px; padding: 2px 0 4px 0; }
+.qb-light .qb-goal-list { spacing: 8px; padding: 2px 0 4px 0; }
 .qb-dark .qb-goal { spacing: 4px; padding: 8px; border-radius: 10px; background-color: rgba(255,255,255,0.06); }
 .qb-light .qb-goal { spacing: 4px; padding: 8px; border-radius: 10px; background-color: rgba(0,0,0,0.054); }
 .qb-dark .qb-goal.done { background-color: rgba(248,228,92,0.08); }

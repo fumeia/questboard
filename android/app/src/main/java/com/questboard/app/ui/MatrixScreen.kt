@@ -249,7 +249,7 @@ fun GoalChips(app: QuestboardApp, q: org.json.JSONObject) {
     val id = q.str("id")
     val current = q.str("goalId")
     val goals = app.store.goals().filter { !it.optBoolean("done") || it.str("id") == current }
-    if (goals.isEmpty()) { Muted("Goal — create long-term goals in the Goals tab, then link quests here", size = 12); return }
+    if (goals.isEmpty()) { Muted("Goal — create long-term goals on the Progress tab, then link quests here", size = 12); return }
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Muted("Goal", size = 12)
         for (g in goals) {

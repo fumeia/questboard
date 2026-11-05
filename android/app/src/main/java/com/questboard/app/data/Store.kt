@@ -551,7 +551,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
 
     data class DayStat(val date: String, val focusMs: Long, val done: Int)
     data class Stats(val focusMs: Long, val xp: Int, val questsDone: Int, val pomodoros: Int,
-                     val byTopic: List<Pair<String, Long>>, val topQuests: List<Pair<String, Long>>,
+                     val byTopic: List<Pair<String, Long>>, val byGoal: List<Pair<String, Long>>, val topQuests: List<Pair<String, Long>>,
                      val daily: List<DayStat>, val streak: Int, val bestStreak: Int)
 
     fun stats(days: Int = 7): Stats {
@@ -560,6 +560,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         fun inRange(k: String) = from.isEmpty() || k >= from
         val byTopic = mutableMapOf<String, Long>()
         val byQuest = mutableMapOf<String, Long>()
+        val byGoal = mutableMapOf<String, Long>()
         var focus = 0L
         for (s in all("sessions")) {
             if (s.str("kind") == "break" || !inRange(s.str("date"))) continue
@@ -570,6 +571,11 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
             val topic = s.str("topic").ifEmpty { if (q != null && !q.bool("deleted")) q.str("topic") else "" }.ifEmpty { "No topic" }
             byTopic[topic] = (byTopic[topic] ?: 0) + ms
             if (qid.isNotEmpty()) byQuest[qid] = (byQuest[qid] ?: 0) + ms
+            if (q != null && !q.bool("deleted")) {
+                val sid = s.str("stepId")
+                val gid = q.str("goalId").ifEmpty { steps(q).find { it.str("id") == sid && sid.isNotEmpty() }?.str("goalId") ?: "" }
+                if (getGoal(gid) != null) byGoal[gid] = (byGoal[gid] ?: 0) + ms
+            }
         }
         var xp = 0; var done = 0; var pomos = 0
         for (l in all("ledger")) {
@@ -587,6 +593,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         }
         val title = { id: String -> colls.getValue("quests")[id]?.takeIf { !it.bool("deleted") }?.str("title") ?: "(deleted quest)" }
         return Stats(focus, xp, done, pomos, byTopic.entries.sortedByDescending { it.value }.map { it.key to it.value },
+            byGoal.entries.sortedByDescending { it.value }.map { (getGoal(it.key)?.str("title") ?: "(deleted goal)") to it.value },
             byQuest.entries.sortedByDescending { it.value }.take(5).map { title(it.key) to it.value }, daily, streak(), best)
     }
 

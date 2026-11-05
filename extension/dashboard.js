@@ -9,7 +9,7 @@ import Gio from 'gi://Gio';
 import St from 'gi://St';
 
 import {CalendarView} from './calendarView.js';
-import {GoalsPage, HabitStrip, HabitsPage, ShopPage, StatsPage} from './pages.js';
+import {HabitStrip, HabitsPage, ProgressPage, ShopPage} from './pages.js';
 import {QUADRANTS, STEP_XP, dueInDays, groupBonus, levelInfo, questXp} from './store.js';
 import {
     addDays, box, button, clearChildren, dateKey, entry, fmtDate, fmtMinutes, fmtSpent, fmtTimer, gicon, icon, iconButton, iconLabel,
@@ -19,12 +19,11 @@ import {
 const XP_BAR_W = 78;
 const TABS = [
     ['matrix', 'qb-grid', 'Matrix'],
-    ['goals', 'qb-star', 'Goals'],
     ['habits', 'qb-repeat', 'Habits'],
     ['quests', 'qb-list', 'Quests'],
     ['timers', 'qb-stopwatch', 'Timers'],
     ['shop', 'qb-shop', 'Shop'],
-    ['stats', 'qb-trophy', 'Stats'],
+    ['progress', 'qb-trophy', 'Progress'],
 ];
 
 export class Dashboard {
@@ -56,16 +55,14 @@ export class Dashboard {
         this.habitStrip = new HabitStrip(this);
         this.habitsPage = new HabitsPage(this);
         this.shopPage = new ShopPage(this);
-        this.statsPage = new StatsPage(this);
-        this.goalsPage = new GoalsPage(this);
+        this.progressPage = new ProgressPage(this);
         this._pages = {
             matrix: this._buildMatrixPage(),
-            goals: this.goalsPage.actor,
             habits: this.habitsPage.actor,
             quests: this._buildQuestsPage(),
             timers: this._buildTimersPage(),
             shop: this.shopPage.actor,
-            stats: this.statsPage.actor,
+            progress: this.progressPage.actor,
             detail: this._buildDetailPage(),
         };
         for (const p of Object.values(this._pages))
@@ -485,7 +482,7 @@ export class Dashboard {
         const gr = box({style_class: 'qb-actions-row qb-wrap-row'});
         const goals = this._store.goals().filter(g => !g.done || g.id === q.goalId);
         if (!goals.length)
-            gr.add_child(label('No goals yet. Add long-term goals in the Goals tab; single steps can be linked too.', 'qb-muted', {wrap: true}));
+            gr.add_child(label('No goals yet. Add long-term goals on the Progress tab; single steps can be linked too.', 'qb-muted', {wrap: true}));
         for (const g of goals) {
             const btn = textButton(g.title, 'qb-small qb-seg', () => this._store.updateQuest(q.id, {goalId: q.goalId === g.id ? null : g.id}));
             if (q.goalId === g.id)
@@ -764,13 +761,12 @@ export class Dashboard {
         this._renderSync();
         switch (this._page) {
         case 'matrix': this._renderMatrix(now); break;
-        case 'goals': this.goalsPage.render(now); break;
         case 'habits': this.habitsPage.render(); break;
         case 'quests': this._renderQuestsPage(now); break;
         case 'timers': this._renderTimersPage(now); break;
         case 'shop': this.shopPage.render(); break;
         case 'detail': this._renderDetail(now); break;
-        case 'stats': this.statsPage.render(); break;
+        case 'progress': this.progressPage.render(now); break;
         }
         this.calendar.render();
     }

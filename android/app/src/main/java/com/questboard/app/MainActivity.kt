@@ -44,7 +44,6 @@ import com.questboard.app.data.levelInfo
 import com.questboard.app.ui.Bar
 import com.questboard.app.ui.C
 import com.questboard.app.ui.CalendarScreen
-import com.questboard.app.ui.GoalsScreen
 import com.questboard.app.ui.HSpace
 import com.questboard.app.ui.HabitsScreen
 import com.questboard.app.ui.IconBtn
@@ -54,7 +53,7 @@ import com.questboard.app.ui.QbIcon
 import com.questboard.app.ui.QbTheme
 import com.questboard.app.ui.SettingsScreen
 import com.questboard.app.ui.ShopScreen
-import com.questboard.app.ui.StatsScreen
+import com.questboard.app.ui.ProgressScreen
 import com.questboard.app.ui.TimersScreen
 import com.questboard.app.ui.fmtSpent
 import com.questboard.app.ui.fmtTimer
@@ -131,7 +130,7 @@ class MainActivity : ComponentActivity() {
         Scaffold(
             containerColor = C.bg,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            bottomBar = { if (tab.value != "settings" && tab.value != "stats") BottomNav() },
+            bottomBar = { if (tab.value != "settings") BottomNav() },
         ) { pad ->
             Column(Modifier.fillMaxSize().padding(pad)) {
                 Header(v, now)
@@ -139,12 +138,11 @@ class MainActivity : ComponentActivity() {
                     when (tab.value) {
                         "matrix" -> MatrixScreen(app, v, now)
                         "habits" -> HabitsScreen(app, v)
-                        "goals" -> GoalsScreen(app, v, now)
                         "calendar" -> CalendarScreen(app, v, permVersion.value)
                         "timers" -> TimersScreen(app, v, now)
                         "shop" -> ShopScreen(app, v)
                         "settings" -> SettingsScreen(app) { tab.value = "matrix" }
-                        "stats" -> StatsScreen(app, v) { tab.value = "matrix" }
+                        "progress", "stats" -> ProgressScreen(app, v, now)
                     }
                 }
             }
@@ -158,7 +156,7 @@ class MainActivity : ComponentActivity() {
         val sync by app.sync.status.collectAsState()
         Row(Modifier.fillMaxWidth().background(C.surface).statusBarsPadding().padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.clip(RoundedCornerShape(50)).background(C.accent).clickable { tab.value = "stats" }.padding(horizontal = 10.dp, vertical = 3.dp)) {
+            Box(Modifier.clip(RoundedCornerShape(50)).background(C.accent).clickable { tab.value = "progress" }.padding(horizontal = 10.dp, vertical = 3.dp)) {
                 Text("Lv ${info.level}", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = C.text)
             }
             HSpace(8.dp)
@@ -199,9 +197,8 @@ class MainActivity : ComponentActivity() {
     private fun BottomNav() {
         NavigationBar(containerColor = C.surface, tonalElevation = 0.dp) {
             for ((id, icon, label) in listOf(
-                Triple("matrix", "grid", "Matrix"), Triple("goals", "star", "Goals"), Triple("habits", "repeat", "Habits"),
-                Triple("calendar", "list", "Calendar"),
-                Triple("timers", "stopwatch", "Timers"), Triple("shop", "shop", "Shop"),
+                Triple("matrix", "grid", "Matrix"), Triple("habits", "repeat", "Habits"), Triple("calendar", "list", "Calendar"),
+                Triple("timers", "stopwatch", "Timers"), Triple("shop", "shop", "Shop"), Triple("progress", "trophy", "Progress"),
             )) {
                 NavigationBarItem(
                     selected = tab.value == id, onClick = { tab.value = id },

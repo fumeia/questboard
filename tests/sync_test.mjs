@@ -75,6 +75,7 @@ assert(Math.abs(desk.questTimeMs(desk.getQuest(other.id)) - 25 * 60000) < 100, '
 assert(Math.abs(desk.goalProgress(goal.id).ms - 25 * 60000) < 100, 'and for the goal');
 desk.toggleStep(other.id, s1.id); desk.setDone(gq.id, true);
 assert.equal(desk.goalProgress(goal.id).done, 2); assert.equal(desk.goalProgress(goal.id).frac, 1);
+const sg = desk.stats(7).byGoal; assert.equal(sg.length, 1); assert(Math.abs(sg[0].ms - 25 * 60000) < 100, 'time per goal in stats');
 const xpG = desk.xp; desk.setGoalDone(goal.id, true); assert.equal(desk.xp, xpG + 100, 'goal XP');
 await sync(desk); await sync(phone);
 assert.equal(phone.goals().length, 1, 'goal synced'); assert.equal(phone.goalProgress(goal.id).total, 2);

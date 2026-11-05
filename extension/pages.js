@@ -1,4 +1,4 @@
-// Habits strip (on the Matrix page), Goals, Habits page, Rewards shop and Stats.
+// Habits strip (on the Matrix page), Habits page, Rewards shop and Progress (goals + stats).
 
 import Clutter from 'gi://Clutter';
 import St from 'gi://St';
@@ -355,7 +355,7 @@ export class ShopPage {
     }
 }
 
-// ------------------------------------------------------------------ stats
+// ------------------------------------------------------------------ progress (goals + stats)
 
 const fmtDur = ms => {
     const m = Math.round(ms / 60000);
@@ -363,26 +363,30 @@ const fmtDur = ms => {
     return h ? `${h}h ${String(m % 60).padStart(2, '0')}m` : `${m}m`;
 };
 
-export class StatsPage {
+export class ProgressPage {
     constructor(dash) {
         this._dash = dash;
         this._store = dash.ctx.store;
         this._range = 7;
+        this._goals = new GoalsSection(dash);
         this.actor = box({vertical: true, style_class: 'qb-page', x_expand: true, y_expand: true});
         this._body = box({vertical: true, style_class: 'qb-stats-body'});
         this.actor.add_child(scroll(this._body, {y_expand: true}));
     }
 
-    render() {
+    render(now = Date.now()) {
         const b = this._body;
         clearChildren(b);
+        b.add_child(label('Goals', 'qb-section-title'));
+        this._goals.render(b, now);
+        b.add_child(label('Stats', 'qb-section-title'));
         const st = this._store.stats(this._range);
 
         const seg = box({style_class: 'qb-actions-row'});
         for (const [v, t] of [[7, '7 days'], [30, '30 days'], [0, 'All time']]) {
             const btn = textButton(t, 'qb-small qb-seg', () => {
                 this._range = v;
-                this.render();
+                this._dash.render(true);
             });
             if (v === this._range)
                 btn.add_style_pseudo_class('checked');
@@ -403,6 +407,24 @@ export class StatsPage {
         tile('qb-target', String(st.pomodoros), 'pomodoros');
         tile('qb-flame', `${st.streak}d`, `streak · best ${st.bestStreak}d`);
         b.add_child(tiles);
+
+        if (st.byGoal.length) {
+            b.add_child(label('Time per goal', 'qb-section-title'));
+            const gTotal = Math.max(1, st.byGoal.reduce((a, g) => a + g.ms, 0));
+            for (const g of st.byGoal) {
+                const row = box({vertical: true, style_class: 'qb-topic-row'});
+                const top = box({});
+                top.add_child(label(g.title, 'qb-topic-name', {ellipsize: true, x_expand: true}));
+                top.add_child(label(`${fmtDur(g.ms)} · ${Math.round(100 * g.ms / gTotal)} %`, 'qb-muted'));
+                row.add_child(top);
+                const track = new St.Widget({style_class: 'qb-progress-track', x_expand: true});
+                const fill = new St.Widget({style_class: 'qb-goal-fill'});
+                track.add_child(fill);
+                track.connect('notify::width', () => fill.set_width(Math.round(track.width * g.ms / gTotal)));
+                row.add_child(track);
+                b.add_child(row);
+            }
+        }
 
         // last 7 days focus chart
         b.add_child(label('Focus, last 7 days', 'qb-section-title'));
@@ -456,28 +478,25 @@ export class StatsPage {
 
 // ---------------------------------------------------------------- goals
 
-/** Long-term goals. Whole quests or single steps link to one (quest details); progress + time roll up here. */
-export class GoalsPage {
+/** Long-term goals (top of the Progress page). Whole quests or single steps link to one; progress + time roll up here. */
+class GoalsSection {
     constructor(dash) {
         this._dash = dash;
         this._store = dash.ctx.store;
         this._open = new Set();
         this._linking = null; // goal whose quest picker is open
-        this.actor = box({vertical: true, style_class: 'qb-page', x_expand: true, y_expand: true});
-        this.actor.add_child(entry('New long-term goal, e.g. Pass the semester — Enter', '', (txt, e) => {
+    }
+
+    render(parent, now = Date.now()) {
+        parent.add_child(entry('New long-term goal, e.g. Pass the semester — Enter', '', (txt, e) => {
             const g = this._store.addGoal(txt);
             if (g) {
                 this._open.add(g.id);
                 e.set_text('');
             }
         }, {x_expand: true}));
-        this._body = box({vertical: true, style_class: 'qb-goal-list'});
-        this.actor.add_child(scroll(this._body, {y_expand: true}));
-    }
-
-    render(now = Date.now()) {
-        const b = this._body;
-        clearChildren(b);
+        const b = box({vertical: true, style_class: 'qb-goal-list'});
+        parent.add_child(b);
         const goals = this._store.goals();
         if (!goals.length) {
             b.add_child(label(`No goals yet. Add one above, then link quests — or single steps — to it in a quest's details. Reaching a goal: +${GOAL_XP} XP.`,

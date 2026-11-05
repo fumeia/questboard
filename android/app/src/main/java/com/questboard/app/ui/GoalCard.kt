@@ -36,36 +36,9 @@ import com.questboard.app.data.GOAL_XP
 import com.questboard.app.data.str
 import org.json.JSONObject
 
-/** Long-term goals: quests and single steps link to them (in the quest sheet); progress + time roll up here. */
+/** One long-term goal on the Progress screen: progress, time, linked quests and steps. */
 @Composable
-fun GoalsScreen(app: QuestboardApp, v: Int, now: Long) {
-    val s = app.store
-    val goals = remember(v) { s.goals() }
-    var newGoal by remember { mutableStateOf("") }
-    var expanded by remember { mutableStateOf(setOf<String>()) }
-    var openQuest by remember { mutableStateOf<String?>(null) }
-    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(vertical = 10.dp)) {
-        item {
-            OutlinedTextField(newGoal, { newGoal = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("New long-term goal, e.g. Pass the semester") },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { s.addGoal(newGoal)?.let { expanded = expanded + it.str("id") }; newGoal = "" }))
-        }
-        if (goals.isEmpty()) item {
-            Muted("No goals yet. Add one, then link quests — or single steps — to it from a quest's details. Reaching a goal: +$GOAL_XP XP.",
-                Modifier.padding(top = 8.dp), 14)
-        }
-        items(goals, key = { it.str("id") }) { g ->
-            val gid = g.str("id")
-            GoalCard(app, g, now, gid in expanded, { expanded = if (gid in expanded) expanded - gid else expanded + gid }) { openQuest = it }
-        }
-    }
-    openQuest?.let { id -> QuestSheet(app, id, v, now) { openQuest = null } }
-}
-
-@Composable
-private fun GoalCard(app: QuestboardApp, g: JSONObject, now: Long, open: Boolean, onToggle: () -> Unit, onOpenQuest: (String) -> Unit) {
+fun GoalCard(app: QuestboardApp, g: JSONObject, now: Long, open: Boolean, onToggle: () -> Unit, onOpenQuest: (String) -> Unit) {
     val s = app.store
     val id = g.str("id")
     val done = g.optBoolean("done")

@@ -765,6 +765,7 @@ export class Store {
         const inRange = key => !from || key >= from;
         const byTopic = new Map();
         const byQuest = new Map();
+        const byGoal = new Map();
         let focusMs = 0, pomodoros = 0;
         for (const s of this.all('sessions')) {
             if (s.kind === 'break' || !inRange(s.date))
@@ -775,6 +776,9 @@ export class Store {
             byTopic.set(topic, (byTopic.get(topic) ?? 0) + s.durationMs);
             if (s.questId)
                 byQuest.set(s.questId, (byQuest.get(s.questId) ?? 0) + s.durationMs);
+            const gid = this._sessionGoal(s, q);
+            if (gid)
+                byGoal.set(gid, (byGoal.get(gid) ?? 0) + s.durationMs);
         }
         let xp = 0, questsDone = 0, habitChecks = 0;
         for (const l of this.all('ledger')) {
@@ -811,9 +815,20 @@ export class Store {
         return {
             focusMs, xp, questsDone, habitChecks, pomodoros,
             byTopic: [...byTopic.entries()].map(([topic, ms]) => ({topic, ms})).sort((a, b) => b.ms - a.ms),
+            byGoal: [...byGoal.entries()].map(([id, ms]) => ({id, title: this.data.colls.goals[id]?.title ?? '(deleted goal)', ms}))
+                .sort((a, b) => b.ms - a.ms),
             topQuests: [...byQuest.entries()].map(([id, ms]) => ({id, title: titles(id), ms})).sort((a, b) => b.ms - a.ms).slice(0, 5),
             daily, streak: this.streak(), bestStreak: best,
         };
+    }
+
+    /** Goal a session counts toward: its quest's goal, else its step's goal (only live goals). */
+    _sessionGoal(s, q) {
+        if (!q || q.deleted)
+            return null;
+        const st = s.stepId ? (q.steps ?? []).find(x => x.id === s.stepId) : null;
+        const gid = q.goalId || st?.goalId;
+        return gid && this.getGoal(gid) ? gid : null;
     }
 
     // ---- habits ----------------------------------------------------------
