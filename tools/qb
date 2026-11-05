@@ -187,6 +187,7 @@ def gradle_env():
         env["JAVA_HOME"] = os.path.join(bt, "jdk")
         env["ANDROID_HOME"] = os.path.join(bt, "android-sdk")
         env["PATH"] = os.path.join(bt, "jdk", "bin") + os.pathsep + env["PATH"]
+        env.setdefault("GRADLE_USER_HOME", os.path.join(bt, "gradle-home"))  # survives container restarts
     env.setdefault("GRADLE_OPTS", "-Xmx1g -Dorg.gradle.daemon=false")
     return env
 
