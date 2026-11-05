@@ -5,7 +5,8 @@
 # Public server? Set the address devices should use, e.g. a Tailscale IP or an HTTPS domain:
 #     QB_PUBLIC_URL=http://100.101.102.103:8787 bash tools/deploy-server.sh hetzner
 # Copies server/ to ~/questboard-server on the server, creates a token, starts Docker,
-# checks it answers, configures the GNOME extension, and writes phone-setup-link.txt.
+# checks it answers, configures the GNOME extension, and saves the token + phone link to
+# ~/.config/questboard/ (never into the project folder).
 set -euo pipefail
 TARGET=${1:?"usage: bash tools/deploy-server.sh user@server-ip [port]"}
 PORT=${2:-8787}
@@ -115,19 +116,15 @@ if [ -d "$SCHEMAS" ]; then
 else
   echo "    extension not installed yet — run: python3 tools/qb install"
 fi
+CONF="${XDG_CONFIG_HOME:-$HOME/.config}/questboard"
+mkdir -p "$CONF" && chmod 700 "$CONF"
 ENC_TOKEN=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "$TOKEN")
 ENC_URL=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "$URL")
-LINK="questboard://setup?url=$ENC_URL&token=$ENC_TOKEN"
-printf '%s\n' "$LINK" > "$REPO/phone-setup-link.txt"
-echo "    phone: send yourself the link in phone-setup-link.txt (e.g. via a messenger) and tap it"
-echo "           after installing the app. Or type in the app: URL $URL  token $TOKEN"
-echo
-read -r -p "Let Claude read device logs & publish updates (writes .qb.env with URL+token into this folder)? [y/N] " A
-if [[ "$A" =~ ^[Yy] ]]; then
-  printf 'QB_URL=%s\nQB_TOKEN=%s\n' "$URL" "$TOKEN" > "$REPO/.qb.env"
-  echo "    wrote .qb.env"
-else
-  echo "    skipped (you can still use tools/qb yourself with QB_URL/QB_TOKEN set)"
-fi
+( umask 077
+  printf 'questboard://setup?url=%s&token=%s\n' "$ENC_URL" "$ENC_TOKEN" > "$CONF/phone-setup-link.txt"
+  printf 'QB_URL=%s\nQB_TOKEN=%s\n' "$URL" "$TOKEN" > "$CONF/qb.env" )
+echo "    saved (outside the project folder, private to you):"
+echo "      $CONF/qb.env                 → lets tools/qb publish updates from your terminal"
+echo "      $CONF/phone-setup-link.txt   → send it to your phone, tap it after installing the app"
 echo
 echo "Done. Live log console: $URL/   (paste the token there)"

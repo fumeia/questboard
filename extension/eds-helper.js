@@ -106,6 +106,7 @@ function getComp(client, uid, rid) {
 }
 
 const commands = {
+    /** Fast: no backend connections (those can take 20 s each for offline/readonly calendars). */
     list() {
         const sources = reg().list_sources(EDataServer.SOURCE_EXTENSION_CALENDAR);
         const cals = [];
@@ -114,10 +115,9 @@ const commands = {
                 continue;
             const ext = s.get_extension(EDataServer.SOURCE_EXTENSION_CALENDAR);
             const parent = s.get_parent() ? reg().ref_source(s.get_parent()) : null;
-            let writable = false;
-            try {
-                writable = !connect(s).is_readonly();
-            } catch {}
+            const backend = ext.get_backend_name?.() ?? '';
+            // read-only kinds: birthdays (contacts), weather, subscribed webcal feeds
+            const writable = !['contacts', 'weather', 'webcal'].includes(backend);
             cals.push({
                 uid: s.get_uid(),
                 name: s.get_display_name(),
@@ -129,6 +129,31 @@ const commands = {
             });
         }
         return {calendars: cals};
+    },
+
+    /** Privacy-safe diagnostics: counts, timings, error types — no names or accounts. */
+    diag(a) {
+        const t0 = Date.now();
+        const sources = reg().list_sources(EDataServer.SOURCE_EXTENSION_CALENDAR).filter(s => s.get_enabled());
+        const out = {typelibs: 'ok', registryMs: Date.now() - t0, calendars: sources.length, backends: {}, connect: []};
+        for (const s of sources) {
+            const b = s.get_extension(EDataServer.SOURCE_EXTENSION_CALENDAR).get_backend_name?.() ?? '?';
+            out.backends[b] = (out.backends[b] ?? 0) + 1;
+        }
+        if (a.connect) {
+            for (const s of sources.slice(0, 8)) {
+                const t = Date.now();
+                const b = s.get_extension(EDataServer.SOURCE_EXTENSION_CALENDAR).get_backend_name?.() ?? '?';
+                try {
+                    const c = ECal.Client.connect_sync(s, ECal.ClientSourceType.EVENTS, 5, null);
+                    out.connect.push({backend: b, ms: Date.now() - t, readonly: c.is_readonly()});
+                } catch (e) {
+                    out.connect.push({backend: b, ms: Date.now() - t, error: e.constructor?.name ?? 'Error',
+                        code: e.code ?? null});
+                }
+            }
+        }
+        return out;
     },
 
     get(a) {

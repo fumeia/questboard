@@ -71,6 +71,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         intent?.getStringExtra("tab")?.let { tab.value = it }
+        handleSetupLink(intent)
         val perms = mutableListOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR)
         if (Build.VERSION.SDK_INT >= 33) perms += Manifest.permission.POST_NOTIFICATIONS
         permLauncher.launch(perms.toTypedArray())
@@ -80,6 +81,22 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         intent.getStringExtra("tab")?.let { tab.value = it }
+        handleSetupLink(intent)
+    }
+
+    /** questboard://setup?url=…&token=… configures the server in one tap. */
+    private fun handleSetupLink(i: Intent?) {
+        val uri = i?.data ?: return
+        if (uri.scheme != "questboard" || uri.host != "setup") return
+        val url = uri.getQueryParameter("url").orEmpty()
+        val token = uri.getQueryParameter("token").orEmpty()
+        if (url.isEmpty() || token.isEmpty()) return
+        app.settings.serverUrl = url
+        app.settings.token = token
+        app.settings.syncEnabled = true
+        app.log.info("setup", "configured from setup link (${android.net.Uri.parse(url).host})")
+        tab.value = "settings"
+        lifecycleScope.launch { app.sync.syncNow("manual") }
     }
 
     override fun onResume() {

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """qb — Questboard developer CLI (stdlib only).
 
-Config: QB_URL / QB_TOKEN from the environment or from <repo>/.qb.env:
-    QB_URL=http://192.168.1.20:8787
-    QB_TOKEN=...
+Config: run `qb login` once — saves QB_URL / QB_TOKEN to ~/.config/questboard/qb.env
+(outside the project folder). Environment variables override it.
+
+  qb login                          save server URL + token
 
   qb status                         devices, last sync, published versions
   qb logs [-f] [-n 100] [--level warn] [--device desk] [--platform android] [--grep text]
@@ -34,16 +35,24 @@ EXT_FILES = ["metadata.json", "extension.js", "prefs.js", "dashboard.js", "pages
              "store.js", "util.js", "net.js", "eds.js", "eds-helper.js", "stylesheet.css"]
 
 
-def load_env():
-    env = {}
-    p = os.path.join(ROOT, ".qb.env")
+# Credentials live OUTSIDE the repo (~/.config/questboard/qb.env), so nothing working
+# inside the project folder can read them. Env vars override; repo .qb.env is a legacy fallback.
+CONFIG = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "questboard", "qb.env")
+
+
+def _read_env_file(p, env):
     if os.path.exists(p):
         for line in open(p):
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
                 k, v = line.split("=", 1)
-                env[k.strip()] = v.strip().strip('"')
-    env.update({k: v for k, v in os.environ.items() if k.startswith("QB_")})
+                env.setdefault(k.strip(), v.strip().strip('"'))
+
+
+def load_env():
+    env = {k: v for k, v in os.environ.items() if k.startswith("QB_")}
+    _read_env_file(CONFIG, env)
+    _read_env_file(os.path.join(ROOT, ".qb.env"), env)
     return env
 
 
@@ -53,7 +62,7 @@ ENV = load_env()
 def api(method, path, body=None, raw=None, ctype="application/json", timeout=30):
     url = ENV.get("QB_URL", "").rstrip("/")
     if not url or not ENV.get("QB_TOKEN"):
-        sys.exit("Set QB_URL and QB_TOKEN (environment or .qb.env in the repo root).")
+        sys.exit("Not logged in. Run: tools/qb login")
     data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
     req = urllib.request.Request(url + path, data=data, method=method)
     req.add_header("Authorization", "Bearer " + ENV["QB_TOKEN"])
@@ -76,6 +85,19 @@ def ago(ms, now):
 
 
 # ------------------------------------------------------------------ commands
+
+def cmd_login(a):
+    import getpass
+    url = input("Server URL (e.g. https://questboard.example.com): ").strip().rstrip("/")
+    token = getpass.getpass("Token (input hidden): ").strip()
+    os.makedirs(os.path.dirname(CONFIG), mode=0o700, exist_ok=True)
+    with open(CONFIG, "w") as f:
+        f.write(f"QB_URL={url}\nQB_TOKEN={token}\n")
+    os.chmod(CONFIG, 0o600)
+    ENV.update(QB_URL=url, QB_TOKEN=token)
+    api("GET", "/api/devices")
+    print(f"OK — saved to {CONFIG} (outside the project folder)")
+
 
 def cmd_status(a):
     j = api("GET", "/api/devices")
@@ -233,6 +255,7 @@ def cmd_install(a):
 def main():
     p = argparse.ArgumentParser(prog="qb", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("login", help="save server URL + token to ~/.config/questboard").set_defaults(fn=cmd_login)
     sub.add_parser("status").set_defaults(fn=cmd_status)
     l = sub.add_parser("logs")
     l.add_argument("-f", "--follow", action="store_true")

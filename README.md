@@ -158,11 +158,9 @@ checksum and opens Android's install prompt. (Allow "Install unknown apps" for Q
 
 ## 5. Developing / pushing updates
 
-One-time on the dev machine: create `.qb.env` in the repo root (git-ignored):
-```
-QB_URL=http://192.168.1.20:8787
-QB_TOKEN=<same token as the server>
-```
+One-time on your laptop: **`tools/qb login`** — saves the server URL + token to
+`~/.config/questboard/qb.env`, outside the project folder (so nothing working inside the project,
+including Claude, can read them). `tools/deploy-server.sh` already does this for you.
 
 ```bash
 tools/qb publish extension --bump -m "what changed"   # zips + uploads; desktops install it automatically
@@ -187,9 +185,21 @@ tools/qb logs -f                                      # watch what happens on th
   Run it after touching `store.js`, the server or `notion_sync.py`.
 - Run the server locally without Docker: `QB_TOKEN=$(openssl rand -hex 16) QB_DATA=/tmp/qb python3 server/qb_server.py`.
 
-### Working on this with Claude
-Give Claude the server URL and token (or let it read `.qb.env`). Then it can publish builds, read
-`qb logs` from your devices and fix what it sees — you only need to log out/in (desktop) or tap Install (phone).
+### Working on this with Claude (privacy)
+Claude only sees the project folder. Secrets and personal data stay outside it:
+
+| Lives | Where | Claude can see it? |
+|---|---|---|
+| Server URL + token (laptop) | `~/.config/questboard/`, GNOME settings | no |
+| Synced quests, habits, logs | your server | no (no credentials) |
+| Google account / events | GNOME Online Accounts, Android | no |
+| Code, builds (`dist/`, APK) | project folder | yes |
+
+Update loop: Claude changes code and builds → you run `tools/qb publish extension --bump` /
+`tools/qb publish android --bump` in your own terminal → devices update. When something breaks, tell Claude
+what you see, or run `tools/qb logs --level warn` yourself and share only what you want to share.
+Calendar problems: `gjs -m ~/.local/share/gnome-shell/extensions/questboard@marci.local/eds-helper.js '{"cmd":"diag","connect":true}'`
+prints counts and timings only — no calendar names or e-mail addresses.
 
 ---
 

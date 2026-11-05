@@ -18,19 +18,20 @@ export class Eds {
         if (!gjs)
             throw new Error('gjs not found');
         const t0 = Date.now();
-        const res = await run([gjs, '-m', this._helper, JSON.stringify(args)], {timeoutSec: 45});
+        const res = await run([gjs, '-m', this._helper, JSON.stringify(args)], {timeoutSec: args.cmd === 'list' ? 20 : 45});
         const line = res.stdout.trim().split('\n').pop() || '';
         let obj;
         try {
             obj = JSON.parse(line);
         } catch {
-            throw new Error(`calendar helper failed${res.timedOut ? ' (timeout)' : ''}: ${res.stderr.trim().slice(-300) || line}`);
+            const detail = redact(res.stderr.trim().split('\n').filter(Boolean).pop() || line || 'no output');
+            throw new Error(`calendar helper failed${res.timedOut ? ' (timeout)' : ''}: ${detail.slice(0, 200)}`);
         }
         this._log.debug('eds', `${args.cmd} → ${obj.ok ? 'ok' : obj.error} (${Date.now() - t0} ms)`);
         if (!obj.ok) {
             if (obj.error === 'missing-typelibs')
                 this.unavailable = {error: 'Calendar editing needs two system packages', hint: obj.hint};
-            throw new Error(obj.hint ? `${obj.error}: ${obj.hint}` : obj.error);
+            throw new Error(redact(obj.hint ? `${obj.error}: ${obj.hint}` : obj.error));
         }
         return obj;
     }
@@ -52,6 +53,11 @@ export class Eds {
     colorFor(sourceUid) {
         return this._cals?.find(c => c.uid === sourceUid)?.color ?? null;
     }
+}
+
+/** Strip e-mail addresses so calendar errors never put your account into logs. */
+function redact(text) {
+    return String(text).replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '<email>');
 }
 
 /** The shell calendar server's event id is "sourceUid\nuid\nrid". */
