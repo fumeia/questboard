@@ -189,6 +189,9 @@
 .qb-qblock.qb-q4 { background-color: rgba(154,153,150,0.45); border-left: 3px solid #9a9996; }
 .qb-qblock:hover { background-color: rgba(255,255,255,0.25); }
 .qb-qblock.done { color: rgba(255,255,255,0.5); }
+.qb-focus { background-color: rgba(229,83,75,0.22); border-left: 3px solid rgba(229,83,75,0.6); }
+.qb-focus.live { background-color: rgba(229,83,75,0.38); border-left: 3px solid #e5534b; }
+.qb-focus:hover { background-color: rgba(229,83,75,0.5); }
 .qb-cal-foot { spacing: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.08); }
 
 /* top bar badge */

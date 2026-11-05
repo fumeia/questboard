@@ -87,4 +87,12 @@ desk.deleteGoal(goal.id); assert.equal(desk.goals().length, 0); assert.equal(des
 desk.toggleStepPomodoro(other.id, s2.id, 25); desk.deleteStep(other.id, s2.id);
 assert.equal(desk.runningTimers()[0].stepId, null); assert.equal(desk.runningTimers()[0].questId, other.id);
 desk.removeTimer(desk.runningTimers()[0].id);
+// pomodoros show up in the calendar: running → until planned end, then as the session
+const fq = desk.addQuest('Calendar focus', 'q1'); const ft = desk.startPomodoro(fq.id, 25);
+let fb = desk.focusBlocks().filter(b => b.id === ft.id); assert.equal(fb.length, 1); assert(fb[0].live);
+assert.equal(fb[0].end - fb[0].start, 25 * 60000, 'live block runs to the planned end');
+ft.startedAt -= 25 * 60000; desk.tick();
+fb = desk.focusBlocks().filter(b => b.questId === fq.id); assert.equal(fb.length, 1); assert(!fb[0].live);
+assert.equal(fb[0].title, 'Calendar focus'); assert(Math.abs(fb[0].end - fb[0].start - 25 * 60000) < 100);
+await sync(desk); await sync(phone); assert(phone.focusBlocks().some(b => b.questId === fq.id), 'focus block synced');
 console.log('level', levelInfo(desk.xp), 'balance', desk.balance, '\nALL SYNC TESTS PASSED');

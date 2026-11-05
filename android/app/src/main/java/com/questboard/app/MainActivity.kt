@@ -138,7 +138,7 @@ class MainActivity : ComponentActivity() {
                     when (tab.value) {
                         "matrix" -> MatrixScreen(app, v, now)
                         "habits" -> HabitsScreen(app, v)
-                        "calendar" -> CalendarScreen(app, v, permVersion.value)
+                        "calendar" -> CalendarScreen(app, v, permVersion.value, now)
                         "timers" -> TimersScreen(app, v, now)
                         "shop" -> ShopScreen(app, v)
                         "settings" -> SettingsScreen(app) { tab.value = "matrix" }

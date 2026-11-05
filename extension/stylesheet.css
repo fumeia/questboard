@@ -273,6 +273,12 @@
 .qb-light .qb-qblock:hover { background-color: rgba(0,0,0,0.225); }
 .qb-dark .qb-qblock.done { color: rgba(255,255,255,0.5); }
 .qb-light .qb-qblock.done { color: rgba(0,0,0,0.55); }
+.qb-dark .qb-focus { background-color: rgba(229,83,75,0.22); border-left: 3px solid rgba(229,83,75,0.6); }
+.qb-light .qb-focus { background-color: rgba(229,83,75,0.22); border-left: 3px solid rgba(229,83,75,0.6); }
+.qb-dark .qb-focus.live { background-color: rgba(229,83,75,0.38); border-left: 3px solid #e5534b; }
+.qb-light .qb-focus.live { background-color: rgba(229,83,75,0.38); border-left: 3px solid #e5534b; }
+.qb-dark .qb-focus:hover { background-color: rgba(229,83,75,0.5); }
+.qb-light .qb-focus:hover { background-color: rgba(229,83,75,0.5); }
 .qb-dark .qb-cal-foot { spacing: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.08); }
 .qb-light .qb-cal-foot { spacing: 6px; padding-top: 4px; border-top: 1px solid rgba(0,0,0,0.072); }
 .qb-panel-badge { spacing: 4px; margin-right: 6px; padding: 0 6px; border-radius: 99px; background-color: rgba(87,227,137,0.22); }

@@ -1121,6 +1121,28 @@ export class Store {
             label: this.timerLabel(questId, stepId) ?? 'Focus'});
     }
 
+    /**
+     * Pomodoro time on one day, for the calendar: finished or paused segments (synced
+     * sessions) plus running Pomodoros, drawn from their start to their planned end.
+     */
+    focusBlocks(key = dateKey(), now = Date.now()) {
+        void now;
+        const out = [];
+        for (const s of this.all('sessions')) {
+            if (s.kind !== 'pomodoro' || s.date !== key)
+                continue;
+            out.push({id: s.id, title: this.timerLabel(s.questId, s.stepId) ?? 'Focus', questId: s.questId ?? null,
+                start: s.start, end: s.end, live: false});
+        }
+        for (const t of this.data.timers) {
+            if (t.kind !== 'pomodoro' || !t.startedAt || dateKey(new Date(t.startedAt)) !== key)
+                continue;
+            out.push({id: t.id, title: t.label, questId: t.questId ?? null,
+                start: t.startedAt, end: t.startedAt + Math.max(0, t.durationMs - t.elapsedMs), live: true});
+        }
+        return out.sort((a, b) => a.start - b.start);
+    }
+
     startBreak(minutes) {
         return this.addTimer({mode: 'countdown', kind: 'break', durationMs: minutes * 60000, label: 'Break'});
     }

@@ -779,6 +779,28 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
     fun startPomodoro(questId: String?, minutes: Int, stepId: String? = null) =
         addTimer("countdown", "pomodoro", minutes * 60_000L, questId, timerLabel(questId, stepId) ?: "Focus", stepId)
 
+    data class FocusBlock(val id: String, val title: String, val questId: String?, val start: Long, val end: Long, val live: Boolean)
+
+    /**
+     * Pomodoro time on one day, for the calendar: finished or paused segments (synced
+     * sessions) plus running Pomodoros, drawn from their start to their planned end.
+     */
+    fun focusBlocks(key: String = dateKey()): List<FocusBlock> {
+        val out = mutableListOf<FocusBlock>()
+        for (s in all("sessions")) {
+            if (s.str("kind") != "pomodoro" || s.str("date") != key) continue
+            val qid = s.str("questId").ifEmpty { null }
+            out += FocusBlock(s.str("id"), timerLabel(qid, s.str("stepId").ifEmpty { null }) ?: "Focus", qid,
+                s.optLong("start"), s.optLong("end"), false)
+        }
+        for (t in timers) {
+            val st = t.startedAt ?: continue
+            if (t.kind != "pomodoro" || dateKeyOf(st) != key) continue
+            out += FocusBlock(t.id, t.label, t.questId, st, st + max(0, t.durationMs - t.elapsedMs), true)
+        }
+        return out.sortedBy { it.start }
+    }
+
     fun startBreak(minutes: Int) = addTimer("countdown", "break", minutes * 60_000L, null, "Break")
 
     /** Finish countdowns whose time is up. Returns them (for notifications). */
