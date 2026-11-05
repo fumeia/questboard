@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-command server setup, run on the LAPTOP:
+# One-command server setup, run on the LAPTOP (it asks for your subdomain):
 #     bash tools/deploy-server.sh you@192.168.1.20 [port]
 #     bash tools/deploy-server.sh hetzner            (a Host alias from ~/.ssh/config works too)
 # Public server? Set the address devices should use, e.g. a Tailscale IP or an HTTPS domain:
@@ -14,6 +14,22 @@ HOST=$(ssh -G "$TARGET" 2>/dev/null | awk '/^hostname /{print $2; exit}')
 HOST=${HOST:-${TARGET#*@}}
 cd "$(dirname "$0")/.."
 REPO=$PWD
+
+# Interactive: ask for a domain and detect how Caddy runs, unless set via env.
+if [ -z "${QB_PUBLIC_URL:-}" ] && [ -t 0 ]; then
+  read -r -p "Subdomain for Questboard behind your Caddy (e.g. questboard.example.com), Enter = none: " D
+  if [ -n "$D" ]; then
+    D=${D#https://}; D=${D%/}
+    QB_PUBLIC_URL="https://$D"
+    CADDY_CT=$(ssh "$TARGET" "docker ps --format '{{.Names}} {{.Image}}' 2>/dev/null | awk 'tolower(\$0) ~ /caddy/ {print \$1; exit}'" || true)
+    if [ -n "$CADDY_CT" ] && [ -z "${QB_DOCKER_NETWORK:-}" ]; then
+      QB_DOCKER_NETWORK=$(ssh "$TARGET" "docker inspect $CADDY_CT --format '{{range \$k,\$v := .NetworkSettings.Networks}}{{\$k}} {{end}}'" | awk '{print $1}')
+      echo "==> Caddy runs in Docker (container '$CADDY_CT', network '$QB_DOCKER_NETWORK')"
+    else
+      echo "==> Caddy runs directly on the server"
+    fi
+  fi
+fi
 
 # Behind a reverse proxy (https URL) → listen on localhost only; Caddy/nginx is the way in.
 # Tailscale address (100.64.0.0/10) → listen only there. Otherwise: public plain HTTP (warn).
