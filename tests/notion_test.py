@@ -13,8 +13,12 @@ PAGES = {
  "p1": page("p1", "Übungsblatt 5", "Übungsblatt", "Not started", str(today + dt.timedelta(days=1))),
  "p2": page("p2", "Endprüfung", "Prüfung", "On Track", str(today + dt.timedelta(days=20))),
  "p3": page("p3", "Vorlesung", "Termin", "Not started", str(today)),
+ "p4": page("p4", "Altes Blatt 9", "Übungsblatt", "Not started", str(today - dt.timedelta(days=300)), mod="m0"),
 }
-MOD = {"id": "m1", "properties": {"Modul": {"type": "title", "title": [{"plain_text": "Analysis II"}]}}}
+MOD = {"id": "m1", "properties": {"Modul": {"type": "title", "title": [{"plain_text": "Analysis II"}]},
+       "Status": {"type": "status", "status": {"name": "Aktuell"}}}}
+OLD = {"id": "m0", "properties": {"Modul": {"type": "title", "title": [{"plain_text": "Lineare Algebra I"}]},
+       "Status": {"type": "status", "status": {"name": "Bestanden"}}}}
 PATCHES = []
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
@@ -23,7 +27,7 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         self.rfile.read(int(self.headers["Content-Length"])); self._s({"results": list(PAGES.values()), "has_more": False})
     def do_GET(self):
-        pid = self.path.rsplit("/", 1)[1]; self._s(MOD if pid == "m1" else PAGES[pid])
+        pid = self.path.rsplit("/", 1)[1]; self._s(MOD if pid == "m1" else OLD if pid == "m0" else PAGES[pid])
     def do_PATCH(self):
         pid = self.path.rsplit("/", 1)[1]; body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         PATCHES.append((pid, body)); pg = PAGES[pid]
@@ -40,6 +44,8 @@ ns.poll()
 q1, q2 = get("quests", "notion.p1"), get("quests", "notion.p2")
 assert q1["title"] == "Analysis II · Übungsblatt 5" and q1["quadrant"] == "q1" and q1["xp"] == 40, q1
 assert q2["quadrant"] == "q2" and q2["xp"] == 100 and get("quests", "notion.p3") is None
+assert get("quests", "notion.p4") is None, "old-semester module (Bestanden) must not be imported"
+assert q1["topic"] == "Analysis II", "module becomes the topic"
 # 1) completed in Notion → quest done + XP once
 PAGES["p2"]["properties"]["Status"]["status"]["name"] = "🏆 Completed"; PAGES["p2"]["last_edited_time"] = "2026-11-04T10:05:00.000Z"
 ns.last_full = 0; ns.poll(); ns.last_full = 0; ns.poll()

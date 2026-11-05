@@ -442,6 +442,56 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         }
     }
 
+    // ---- topics & stats (same rules as extension/store.js) -------------------
+
+    fun topics(): List<String> {
+        val seen = mutableMapOf<String, Long>()
+        for (q in quests) q.str("topic").takeIf { it.isNotEmpty() }?.let { seen[it] = maxOf(seen[it] ?: 0, q.optLong("updatedAt")) }
+        for (s in all("sessions")) s.str("topic").takeIf { it.isNotEmpty() }?.let { seen[it] = maxOf(seen[it] ?: 0, s.optLong("end")) }
+        return seen.entries.sortedByDescending { it.value }.map { it.key }
+    }
+
+    data class DayStat(val date: String, val focusMs: Long, val done: Int)
+    data class Stats(val focusMs: Long, val xp: Int, val questsDone: Int, val pomodoros: Int,
+                     val byTopic: List<Pair<String, Long>>, val topQuests: List<Pair<String, Long>>,
+                     val daily: List<DayStat>, val streak: Int, val bestStreak: Int)
+
+    fun stats(days: Int = 7): Stats {
+        val today = LocalDate.now()
+        val from = if (days > 0) dateKey(today.minusDays((days - 1).toLong())) else ""
+        fun inRange(k: String) = from.isEmpty() || k >= from
+        val byTopic = mutableMapOf<String, Long>()
+        val byQuest = mutableMapOf<String, Long>()
+        var focus = 0L
+        for (s in all("sessions")) {
+            if (s.str("kind") == "break" || !inRange(s.str("date"))) continue
+            val ms = s.optLong("durationMs")
+            focus += ms
+            val qid = s.str("questId")
+            val q = if (qid.isNotEmpty()) colls.getValue("quests")[qid] else null
+            val topic = s.str("topic").ifEmpty { if (q != null && !q.bool("deleted")) q.str("topic") else "" }.ifEmpty { "No topic" }
+            byTopic[topic] = (byTopic[topic] ?: 0) + ms
+            if (qid.isNotEmpty()) byQuest[qid] = (byQuest[qid] ?: 0) + ms
+        }
+        var xp = 0; var done = 0; var pomos = 0
+        for (l in all("ledger")) {
+            if (!inRange(dateKeyOf(l.optLong("at")))) continue
+            val a = l.optInt("amount"); if (a > 0) xp += a
+            when (l.str("kind")) { "quest" -> done++; "pomodoro" -> pomos++ }
+        }
+        val d = derived()
+        val daily = (6 downTo 0).map { i -> val k = dateKey(today.minusDays(i.toLong())); DayStat(k, d.focusByDay[k] ?: 0, d.doneByDay[k] ?: 0) }
+        var best = 0; var run = 0; var prev: LocalDate? = null
+        for (k in d.activeDays.sorted()) {
+            val cur = LocalDate.parse(k)
+            run = if (prev != null && prev.plusDays(1) == cur) run + 1 else 1
+            best = maxOf(best, run); prev = cur
+        }
+        val title = { id: String -> colls.getValue("quests")[id]?.takeIf { !it.bool("deleted") }?.str("title") ?: "(deleted quest)" }
+        return Stats(focus, xp, done, pomos, byTopic.entries.sortedByDescending { it.value }.map { it.key to it.value },
+            byQuest.entries.sortedByDescending { it.value }.take(5).map { title(it.key) to it.value }, daily, streak(), best)
+    }
+
     // ---- habits -------------------------------------------------------------
 
     fun habits() = all("habits").filter { !it.bool("archived") }.sortedBy { it.optLong("order", it.optLong("createdAt")) }
@@ -552,8 +602,9 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         t.elapsedMs += seg
         t.startedAt = null
         if (seg < 1000) return
+        val topic = t.questId?.let { getQuest(it)?.str("topic") }?.ifEmpty { null }
         put("sessions", jobj("id" to uid(), "questId" to t.questId, "kind" to t.kind, "start" to now - seg, "end" to now,
-            "durationMs" to seg, "date" to dateKeyOf(now - seg)))
+            "durationMs" to seg, "date" to dateKeyOf(now - seg), "topic" to topic))
     }
 
     fun addTimer(mode: String, kind: String, durationMs: Long, questId: String?, label: String? = null): Timer {

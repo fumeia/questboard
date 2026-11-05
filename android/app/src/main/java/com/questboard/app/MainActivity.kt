@@ -53,6 +53,7 @@ import com.questboard.app.ui.QbIcon
 import com.questboard.app.ui.QbTheme
 import com.questboard.app.ui.SettingsScreen
 import com.questboard.app.ui.ShopScreen
+import com.questboard.app.ui.StatsScreen
 import com.questboard.app.ui.TimersScreen
 import com.questboard.app.ui.fmtSpent
 import com.questboard.app.ui.fmtTimer
@@ -129,7 +130,7 @@ class MainActivity : ComponentActivity() {
         Scaffold(
             containerColor = C.bg,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            bottomBar = { if (tab.value != "settings") BottomNav() },
+            bottomBar = { if (tab.value != "settings" && tab.value != "stats") BottomNav() },
         ) { pad ->
             Column(Modifier.fillMaxSize().padding(pad)) {
                 Header(v, now)
@@ -141,6 +142,7 @@ class MainActivity : ComponentActivity() {
                         "timers" -> TimersScreen(app, v, now)
                         "shop" -> ShopScreen(app, v)
                         "settings" -> SettingsScreen(app) { tab.value = "matrix" }
+                        "stats" -> StatsScreen(app, v) { tab.value = "matrix" }
                     }
                 }
             }
@@ -154,7 +156,7 @@ class MainActivity : ComponentActivity() {
         val sync by app.sync.status.collectAsState()
         Row(Modifier.fillMaxWidth().background(C.surface).statusBarsPadding().padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.clip(RoundedCornerShape(50)).background(C.accent).padding(horizontal = 10.dp, vertical = 3.dp)) {
+            Box(Modifier.clip(RoundedCornerShape(50)).background(C.accent).clickable { tab.value = "stats" }.padding(horizontal = 10.dp, vertical = 3.dp)) {
                 Text("Lv ${info.level}", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = C.text)
             }
             HSpace(8.dp)

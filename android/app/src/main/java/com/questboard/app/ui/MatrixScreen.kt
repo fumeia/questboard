@@ -193,6 +193,7 @@ fun QuestSheet(app: QuestboardApp, id: String, v: Int, now: Long, onClose: () ->
                 }
             }
             QuadrantChips(q.str("quadrant")) { s.updateQuest(id, mapOf("quadrant" to it)) }
+            TopicChips(app, q)
             DueChips(q.optJSONObject("due")?.str("date")?.ifEmpty { null }) { d -> s.updateQuest(id, mapOf("due" to d?.let { jobj("date" to it) })) }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Muted("Schedule today at", size = 12)
@@ -215,6 +216,22 @@ fun QuestSheet(app: QuestboardApp, id: String, v: Int, now: Long, onClose: () ->
             Spacer(Modifier.height(4.dp))
         }
     }
+}
+
+/** Topic / course (for stats). Notion quests get their module automatically. */
+@Composable
+fun TopicChips(app: QuestboardApp, q: org.json.JSONObject) {
+    val id = q.str("id")
+    val current = q.str("topic")
+    var newTopic by remember(id) { mutableStateOf("") }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Muted("Topic", size = 12)
+        for (t in app.store.topics().take(6))
+            Pill(t, if (t == current) C.accent else C.card) { app.store.updateQuest(id, mapOf("topic" to if (t == current) null else t)) }
+    }
+    OutlinedTextField(newTopic, { newTopic = it }, singleLine = true, placeholder = { Text("New topic / course") },
+        modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { if (newTopic.isNotBlank()) app.store.updateQuest(id, mapOf("topic" to newTopic.trim())); newTopic = "" }))
 }
 
 /** Steps of a group: tick each (10 XP); all done = quest XP + 50 % bonus. */

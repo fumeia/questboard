@@ -129,25 +129,36 @@ class NotionSync:
             return self.srv.get_record(coll, rid)
 
     # ---- mapping
-    def module_name(self, page):
+    def module_info(self, page):
+        """(title, status) of the page's module; cached, refreshed with every full scan."""
         rel = (page["properties"].get(self.cfg["props"]["module"]) or {}).get("relation") or []
         if not rel:
-            return ""
+            return "", None
         mid = rel[0]["id"]
         if mid not in self.modules:
             try:
                 mp = self.api.call("GET", f"/v1/pages/{mid}")
-                self.modules[mid] = plain(mp["properties"].get(self.cfg["module_title_prop"])) or next(
+                title = plain(mp["properties"].get(self.cfg["module_title_prop"])) or next(
                     (plain(v) for v in mp["properties"].values() if v.get("type") == "title"), "")
+                status = plain(mp["properties"].get(self.cfg.get("module_status_prop", "Status")))
+                self.modules[mid] = (title, status)
             except Exception as e:  # noqa: BLE001 — module not shared with the integration
-                self.srv.server_log("warn", "notion", f"cannot read module {mid}: {e}")
-                self.modules[mid] = ""
+                self.srv.server_log("warn", "notion", f"cannot read module {mid} (shared with the integration?): {e}")
+                self.modules[mid] = ("", None)
         return self.modules[mid]
+
+    def module_allowed(self, n):
+        allowed = self.cfg.get("module_statuses") or []
+        if not allowed:
+            return True
+        if n["module_status"] is None:
+            return bool(self.cfg.get("include_without_module")) and not n["module"]
+        return n["module_status"] in allowed
 
     def parse(self, page):
         p, c = page["properties"], self.cfg["props"]
         base = plain(p.get(c["title"])).strip() or "Untitled"
-        module = self.module_name(page)
+        module, module_status = self.module_info(page)
         due_raw = ((p.get(c["due"]) or {}).get("date") or {}).get("start")
         due = None
         if due_raw:
@@ -158,7 +169,7 @@ class NotionSync:
         status = plain(p.get(c["status"]))
         typ = plain(p.get(c["type"]))
         return {
-            "base": base, "module": module, "title": f"{module} · {base}" if module else base,
+            "base": base, "module": module, "module_status": module_status, "title": f"{module} · {base}" if module else base,
             "due": due, "status": status, "type": typ, "done": status in self.cfg["done_statuses"],
             "url": page.get("url"), "edited": page.get("last_edited_time"),
             "archived": bool(page.get("archived") or page.get("in_trash")),
@@ -193,6 +204,8 @@ class NotionSync:
             return
         if not q and n["done"] and n["due"] and days_until(n["due"]["date"]) < -self.cfg["skip_done_older_than_days"]:
             return  # old finished work: don't flood the board
+        if not q and not self.module_allowed(n):
+            return  # only current-semester modules (module Status = Aktuell)
 
         quest_changed = bool(q and st and q["updatedAt"] > (st["quest_updated"] or 0))
         notion_changed = not st or st["notion_edited"] != n["edited"]
@@ -263,6 +276,8 @@ class NotionSync:
         t0 = time.time()
         full = time.time() - self.last_full > self.cfg["full_scan_minutes"] * 60
         ds = self.cfg["data_source_id"]
+        if full:
+            self.modules = {}  # re-read module titles/status (e.g. new semester)
         if full or not self.last_poll_iso:
             flt = {"or": [{"property": self.cfg["props"]["type"], "select": {"equals": t}} for t in self.cfg["include_types"]]}
         else:

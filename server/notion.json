@@ -1,17 +1,47 @@
 {
-  "_comment": "Mapping for the Studienplaner 'Objekte DB'. Copy to ./data/notion.json to customise.",
+  "_comment": "Mapping for the Studienplaner 'Objekte DB'. Only tasks whose module has a status in module_statuses are imported. Copy to ./data/notion.json to customise.",
   "data_source_id": "53dba512-6d73-4b7f-8765-8af9b6b7dd17",
   "poll_seconds": 120,
   "full_scan_minutes": 30,
-  "props": {"title": "Titel", "status": "Status", "type": "Type", "due": "Zieldatum", "module": "Modul"},
+  "props": {
+    "title": "Titel",
+    "status": "Status",
+    "type": "Type",
+    "due": "Zieldatum",
+    "module": "Modul"
+  },
   "module_title_prop": "Modul",
-  "include_types": ["Übungsblatt", "Prüfung", "Präsentation", "Projekt", "Hausarbeit"],
-  "done_statuses": ["🏆 Completed", "Resolved", "No action"],
+  "include_types": [
+    "Übungsblatt",
+    "Prüfung",
+    "Präsentation",
+    "Projekt",
+    "Hausarbeit"
+  ],
+  "done_statuses": [
+    "🏆 Completed",
+    "Resolved",
+    "No action"
+  ],
   "set_done_status": "🏆 Completed",
   "set_open_status": "Not started",
-  "urgent_statuses": ["Off Track", "⚠️ At Risk"],
+  "urgent_statuses": [
+    "Off Track",
+    "⚠️ At Risk"
+  ],
   "urgent_within_days": 3,
   "unimportant_types": [],
-  "xp_by_type": {"Prüfung": 100, "Projekt": 80, "Hausarbeit": 80, "Präsentation": 60, "Übungsblatt": 40},
-  "skip_done_older_than_days": 21
+  "xp_by_type": {
+    "Prüfung": 100,
+    "Projekt": 80,
+    "Hausarbeit": 80,
+    "Präsentation": 60,
+    "Übungsblatt": 40
+  },
+  "skip_done_older_than_days": 21,
+  "module_status_prop": "Status",
+  "module_statuses": [
+    "Aktuell"
+  ],
+  "include_without_module": false
 }
