@@ -41,8 +41,8 @@
 .qb-light .qb-round { border-radius: 99px; padding: 8px; background-color: rgba(0,0,0,0.108); }
 .qb-dark .qb-round.qb-running { background-color: rgba(87,227,137,0.25); }
 .qb-light .qb-round.qb-running { background-color: rgba(87,227,137,0.25); }
-.qb-dark .qb-entry { border-radius: 8px; padding: 4px 8px; font-size: 0.88em; min-height: 0; background-color: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.06); color: #fff; selected-color: #fff; caret-color: #fff; }
-.qb-light .qb-entry { border-radius: 8px; padding: 4px 8px; font-size: 0.88em; min-height: 0; background-color: rgba(0,0,0,0.054); border: 1px solid rgba(0,0,0,0.054); color: #1d1d20; selected-color: #1d1d20; caret-color: #1d1d20; }
+.qb-dark .qb-entry { border-radius: 8px; padding: 5px 8px; font-size: 0.88em; min-height: 1.6em; background-color: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.06); color: #fff; selected-color: #fff; caret-color: #fff; }
+.qb-light .qb-entry { border-radius: 8px; padding: 5px 8px; font-size: 0.88em; min-height: 1.6em; background-color: rgba(0,0,0,0.054); border: 1px solid rgba(0,0,0,0.054); color: #1d1d20; selected-color: #1d1d20; caret-color: #1d1d20; }
 .qb-dark .qb-entry:focus { border-color: rgba(53,132,228,0.9); background-color: rgba(255,255,255,0.1); }
 .qb-light .qb-entry:focus { border-color: rgba(53,132,228,0.9); background-color: rgba(0,0,0,0.09); }
 .qb-dark .qb-mins { width: 52px; }
@@ -432,3 +432,49 @@
 .qb-light .qb-due-chip.qb-q2 { border-left-color: #3584e4; }
 .qb-dark .qb-link-line { spacing: 6px; }
 .qb-light .qb-link-line { spacing: 6px; }
+.qb-dark .qb-progress-pill { border-radius: 99px; padding: 0 6px; background-color: rgba(255,255,255,0.1); }
+.qb-light .qb-progress-pill { border-radius: 99px; padding: 0 6px; background-color: rgba(0,0,0,0.09); }
+.qb-dark .qb-progress-pill:hover { background-color: rgba(255,255,255,0.18); }
+.qb-light .qb-progress-pill:hover { background-color: rgba(0,0,0,0.162); }
+.qb-dark .qb-progress-pill.full { background-color: rgba(46,194,126,0.45); }
+.qb-light .qb-progress-pill.full { background-color: rgba(46,194,126,0.45); }
+.qb-dark .qb-progress-pill BoxLayout { spacing: 2px; }
+.qb-light .qb-progress-pill BoxLayout { spacing: 2px; }
+.qb-dark .qb-progress-pill-label { font-size: 0.72em; font-weight: bold; font-feature-settings: "tnum"; }
+.qb-light .qb-progress-pill-label { font-size: 0.72em; font-weight: bold; font-feature-settings: "tnum"; }
+.qb-dark .qb-tiny-icon { icon-size: 10px; }
+.qb-light .qb-tiny-icon { icon-size: 10px; }
+.qb-dark .qb-steps { spacing: 1px; padding: 0 0 4px 22px; }
+.qb-light .qb-steps { spacing: 1px; padding: 0 0 4px 22px; }
+.qb-dark .qb-steps-edit { padding: 0 0 4px 0; spacing: 4px; }
+.qb-light .qb-steps-edit { padding: 0 0 4px 0; spacing: 4px; }
+.qb-dark .qb-step { spacing: 6px; padding: 1px 2px; border-radius: 6px; }
+.qb-light .qb-step { spacing: 6px; padding: 1px 2px; border-radius: 6px; }
+.qb-dark .qb-step:hover { background-color: rgba(255,255,255,0.05); }
+.qb-light .qb-step:hover { background-color: rgba(0,0,0,0.045); }
+.qb-dark .qb-step.done .qb-step-title { color: rgba(255,255,255,0.4); }
+.qb-light .qb-step.done .qb-step-title { color: rgba(0,0,0,0.44); }
+.qb-dark .qb-check-small { width: 12px; height: 12px; border-radius: 4px; }
+.qb-light .qb-check-small { width: 12px; height: 12px; border-radius: 4px; }
+.qb-dark .qb-check-small .qb-check-icon { icon-size: 10px; }
+.qb-light .qb-check-small .qb-check-icon { icon-size: 10px; }
+.qb-dark .qb-step-title { font-size: 0.85em; }
+.qb-light .qb-step-title { font-size: 0.85em; }
+.qb-dark .qb-detail-body { spacing: 8px; padding: 2px 4px 8px 2px; }
+.qb-light .qb-detail-body { spacing: 8px; padding: 2px 4px 8px 2px; }
+.qb-dark .qb-detail-title { font-size: 1.05em; font-weight: bold; }
+.qb-light .qb-detail-title { font-size: 1.05em; font-weight: bold; }
+.qb-dark .qb-move:checked { border: 2px solid rgba(255,255,255,0.8); font-weight: bold; }
+.qb-light .qb-move:checked { border: 2px solid rgba(0,0,0,0.85); font-weight: bold; }
+.qb-dark .qb-pick-hint { spacing: 6px; }
+.qb-light .qb-pick-hint { spacing: 6px; }
+.qb-dark .qb-pick-scroll { max-height: 140px; }
+.qb-light .qb-pick-scroll { max-height: 140px; }
+.qb-dark .qb-block-icon { icon-size: 11px; padding-right: 3px; }
+.qb-light .qb-block-icon { icon-size: 11px; padding-right: 3px; }
+.qb-dark .qb-block.linked { border-left-width: 4px; }
+.qb-light .qb-block.linked { border-left-width: 4px; }
+.qb-dark .qb-allday-item.done { color: rgba(255,255,255,0.5); }
+.qb-light .qb-allday-item.done { color: rgba(0,0,0,0.55); }
+.qb-dark .qb-linked { padding: 4px 6px; border-radius: 8px; background-color: rgba(46,194,126,0.15); }
+.qb-light .qb-linked { padding: 4px 6px; border-radius: 8px; background-color: rgba(46,194,126,0.15); }

@@ -34,4 +34,18 @@ assert.equal(desk.balance, phone.balance); assert.equal(desk.dirtyCount(),0); as
 // delete propagates
 phone.deleteQuest(q.id); await sync(phone); await sync(desk); assert.equal(desk.getQuest(q.id), null);
 assert.equal(desk.xp, phone.xp, 'xp kept after delete');
+// groups: steps pay STEP_XP, finishing all steps completes the quest with a bonus
+const g = desk.addQuest('Uni sheet 5', 'q1');
+desk.addStep(g.id, 'Exercise 1'); desk.addStep(g.id, 'Exercise 2'); desk.addStep(g.id, 'Exercise 3');
+const steps = desk.getQuest(g.id).steps; const xp0 = desk.xp;
+desk.toggleStep(g.id, steps[0].id); desk.toggleStep(g.id, steps[1].id);
+assert.equal(desk.xp, xp0 + 20); assert(!desk.getQuest(g.id).done);
+desk.toggleStep(g.id, steps[2].id);
+assert(desk.getQuest(g.id).done, 'last step completes the group');
+assert.equal(desk.xp, xp0 + 30 + 30 + 15, 'steps + quest XP + 50% bonus');
+desk.toggleStep(g.id, steps[2].id);
+assert(!desk.getQuest(g.id).done); assert.equal(desk.xp, xp0 + 20, 'unticking a step reopens + removes quest XP');
+desk.setDone(g.id, true);
+assert.equal(desk.xp, xp0 + 30 + 30 + 15, 'ticking the group ticks the rest');
+await sync(desk); await sync(phone); assert.equal(phone.getQuest(g.id).steps.length, 3); assert.equal(phone.xp, desk.xp);
 console.log('level', levelInfo(desk.xp), 'balance', desk.balance, '\nALL SYNC TESTS PASSED');

@@ -28,7 +28,7 @@
 .qb-round.qb-running { background-color: rgba(87,227,137,0.25); }
 
 .qb-entry {
-  border-radius: 8px; padding: 4px 8px; font-size: 0.88em; min-height: 0;
+  border-radius: 8px; padding: 5px 8px; font-size: 0.88em; min-height: 1.6em;
   background-color: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.06);
   color: #fff; selected-color: #fff; caret-color: #fff;
 }
@@ -293,3 +293,28 @@
 .qb-due-chip.qb-q1 { border-left-color: #e5534b; }
 .qb-due-chip.qb-q2 { border-left-color: #3584e4; }
 .qb-link-line { spacing: 6px; }
+
+/* ===================== groups, details page, calendar picking ===================== */
+.qb-progress-pill { border-radius: 99px; padding: 0 6px; background-color: rgba(255,255,255,0.1); }
+.qb-progress-pill:hover { background-color: rgba(255,255,255,0.18); }
+.qb-progress-pill.full { background-color: rgba(46,194,126,0.45); }
+.qb-progress-pill BoxLayout { spacing: 2px; }
+.qb-progress-pill-label { font-size: 0.72em; font-weight: bold; font-feature-settings: "tnum"; }
+.qb-tiny-icon { icon-size: 10px; }
+.qb-steps { spacing: 1px; padding: 0 0 4px 22px; }
+.qb-steps-edit { padding: 0 0 4px 0; spacing: 4px; }
+.qb-step { spacing: 6px; padding: 1px 2px; border-radius: 6px; }
+.qb-step:hover { background-color: rgba(255,255,255,0.05); }
+.qb-step.done .qb-step-title { color: rgba(255,255,255,0.4); }
+.qb-check-small { width: 12px; height: 12px; border-radius: 4px; }
+.qb-check-small .qb-check-icon { icon-size: 10px; }
+.qb-step-title { font-size: 0.85em; }
+.qb-detail-body { spacing: 8px; padding: 2px 4px 8px 2px; }
+.qb-detail-title { font-size: 1.05em; font-weight: bold; }
+.qb-move:checked { border: 2px solid rgba(255,255,255,0.8); font-weight: bold; }
+.qb-pick-hint { spacing: 6px; }
+.qb-pick-scroll { max-height: 140px; }
+.qb-block-icon { icon-size: 11px; padding-right: 3px; }
+.qb-block.linked { border-left-width: 4px; }
+.qb-allday-item.done { color: rgba(255,255,255,0.5); }
+.qb-linked { padding: 4px 6px; border-radius: 8px; background-color: rgba(46,194,126,0.15); }

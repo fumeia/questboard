@@ -10,9 +10,9 @@ import St from 'gi://St';
 
 import {CalendarView} from './calendarView.js';
 import {HabitStrip, HabitsPage, ShopPage} from './pages.js';
-import {QUADRANTS, dueInDays, levelInfo, questXp} from './store.js';
+import {QUADRANTS, STEP_XP, dueInDays, groupBonus, levelInfo, questXp} from './store.js';
 import {
-    addDays, box, button, clearChildren, dateKey, entry, fmtMinutes, fmtSpent, fmtTimer, gicon, icon, iconButton, iconLabel,
+    addDays, box, button, clearChildren, dateKey, entry, fmtDate, fmtMinutes, fmtSpent, fmtTimer, gicon, icon, iconButton, iconLabel,
     iconTextButton, label, scroll, textButton,
 } from './util.js';
 
@@ -34,8 +34,9 @@ export class Dashboard {
         this._open = false;
         this._stale = true;
         this._page = 'matrix';
-        this._expanded = null;
         this._pickerFor = null;
+        this._openGroups = new Set(); // quests whose steps are shown inline
+        this._detailId = null;
         this._newTimerQuest = null;
         this._questTimeLabels = new Map();
         this._timerWidgets = new Map();
@@ -58,12 +59,13 @@ export class Dashboard {
             quests: this._buildQuestsPage(),
             timers: this._buildTimersPage(),
             shop: this.shopPage.actor,
+            detail: this._buildDetailPage(),
         };
         for (const p of Object.values(this._pages))
             this._left.add_child(p);
         body.add_child(this._left);
 
-        this.calendar = new CalendarView({...ctx, onQuestClick: id => this.focusQuest(id)});
+        this.calendar = new CalendarView({...ctx, onQuestClick: id => this.openQuest(id)});
         body.add_child(this.calendar.actor);
         this.actor.add_child(body);
 
@@ -79,7 +81,6 @@ export class Dashboard {
 
     onOpen() {
         this._open = true;
-        this._expanded = null;
         this._pickerFor = null;
         this._page = 'matrix';
         this.calendar.onOpen();
@@ -88,14 +89,12 @@ export class Dashboard {
 
     onClose() {
         this._open = false;
-        this._expanded = null;
         this._pickerFor = null;
         this.calendar.onClose();
     }
 
     focusQuest(id) {
-        this._expanded = id;
-        this._setPage('matrix');
+        this.openQuest(id);
     }
 
     // ---- header ----------------------------------------------------------
@@ -280,12 +279,11 @@ export class Dashboard {
     // ---- quest row -------------------------------------------------------
 
     _questRow(q, now, {showDot = false} = {}) {
-        const expanded = this._expanded === q.id;
+        const steps = q.steps ?? [];
+        const groupOpen = this._openGroups.has(q.id);
         let cls = 'qb-quest';
         if (q.done)
             cls += ' done';
-        if (expanded)
-            cls += ' expanded';
         const wrap = box({vertical: true, style_class: cls});
         const row = box({style_class: 'qb-quest-row'});
 
@@ -300,15 +298,30 @@ export class Dashboard {
             row.add_child(new St.Widget({style_class: `qb-dot qb-${q.quadrant}`, y_align: Clutter.ActorAlign.CENTER}));
 
         const titleLbl = label(q.title, 'qb-quest-title', {ellipsize: true, x_expand: true, x_align: Clutter.ActorAlign.START});
-        row.add_child(button({style_class: 'qb-quest-title-btn', child: titleLbl, x_expand: true}, () => {
-            this._expanded = expanded ? null : q.id;
-            this.render(true);
-        }, 'quest-title'));
+        row.add_child(button({style_class: 'qb-quest-title-btn', child: titleLbl, x_expand: true},
+            () => this.openQuest(q.id), 'quest-title'));
 
+        if (steps.length) {
+            const pr = this._store.stepProgress(q);
+            const inner = box({});
+            inner.add_child(label(`${pr.done}/${pr.total}`, 'qb-progress-pill-label'));
+            inner.add_child(icon(groupOpen ? 'pan-up-symbolic' : 'pan-down-symbolic', 'qb-icon qb-tiny-icon'));
+            row.add_child(button({style_class: pr.done === pr.total ? 'qb-progress-pill full' : 'qb-progress-pill', child: inner,
+                y_align: Clutter.ActorAlign.CENTER, accessible_name: 'Show steps'}, () => {
+                if (groupOpen)
+                    this._openGroups.delete(q.id);
+                else
+                    this._openGroups.add(q.id);
+                this.render(true);
+            }, 'group-toggle'));
+        }
         if (q.source === 'notion')
             row.add_child(icon('qb-book', 'qb-icon qb-src-icon'));
-        if (q.scheduled)
-            row.add_child(label(fmtMinutes(q.scheduled.start), 'qb-quest-sched'));
+        if (q.gcal)
+            row.add_child(icon('x-office-calendar-symbolic', 'qb-icon qb-src-icon'));
+        const t = q.scheduled?.start ?? q.eventTime?.start;
+        if (t !== undefined && t !== null)
+            row.add_child(label(fmtMinutes(t), 'qb-quest-sched'));
         const dd = q.done ? null : dueInDays(q);
         if (dd !== null) {
             const txt = dd < 0 ? `${-dd}d late` : dd === 0 ? 'today' : dd === 1 ? 'tomorrow' : `in ${dd}d`;
@@ -328,68 +341,149 @@ export class Dashboard {
                 running ? 'Pause timer' : 'Start timer'));
         }
         wrap.add_child(row);
-        if (expanded)
-            wrap.add_child(this._questActions(q));
+        if (groupOpen && steps.length) {
+            const list = box({vertical: true, style_class: 'qb-steps'});
+            for (const st of steps)
+                list.add_child(this._stepRow(q, st, false));
+            wrap.add_child(list);
+        }
         return wrap;
     }
 
-    _questActions(q) {
-        const panel = box({vertical: true, style_class: 'qb-actions'});
-        panel.add_child(entry('Title', 'qb-rename', t => {
-            if (t.trim())
-                this._store.updateQuest(q.id, {title: t.trim()});
-        }, {text: q.title, x_expand: true}));
-        panel.add_child(entry('Notes', 'qb-rename', t => this._store.updateQuest(q.id, {notes: t}), {text: q.notes ?? '', x_expand: true}));
-
-        const r1 = box({style_class: 'qb-actions-row'});
-        for (const quad of QUADRANTS) {
-            if (quad.id !== q.quadrant)
-                r1.add_child(textButton(quad.short, `qb-small qb-move qb-${quad.id}`, () => this._store.updateQuest(q.id, {quadrant: quad.id})));
+    _stepRow(q, st, editable) {
+        const row = box({style_class: st.done ? 'qb-step done' : 'qb-step'});
+        row.add_child(button({style_class: st.done ? 'qb-check qb-check-small checked' : 'qb-check qb-check-small',
+            child: icon('qb-check', 'qb-check-icon'), y_align: Clutter.ActorAlign.CENTER}, () => this._store.toggleStep(q.id, st.id), 'step'));
+        if (editable) {
+            row.add_child(entry('Step', 'qb-step-entry', txt => this._store.renameStep(q.id, st.id, txt), {text: st.title, x_expand: true}));
+            row.add_child(iconButton('window-close-symbolic', 'qb-flat qb-tiny', () => this._store.deleteStep(q.id, st.id), 'Remove step'));
+        } else {
+            row.add_child(label(st.title, 'qb-step-title', {ellipsize: true, x_expand: true}));
         }
-        r1.add_child(new St.Widget({x_expand: true}));
-        r1.add_child(iconButton('user-trash-symbolic', 'qb-flat qb-tiny qb-danger', () => {
-            this._expanded = null;
-            this._store.deleteQuest(q.id);
-        }, 'Delete quest'));
-        panel.add_child(r1);
+        return row;
+    }
 
+    // ---- quest details (full-width page) ---------------------------------
+
+    openQuest(id) {
+        this._detailId = id;
+        this._returnPage = this._page === 'detail' ? (this._returnPage ?? 'matrix') : this._page;
+        this._setPage('detail');
+    }
+
+    _buildDetailPage() {
+        const page = box({vertical: true, style_class: 'qb-page qb-detail', x_expand: true, y_expand: true});
+        this._detailBody = box({vertical: true, style_class: 'qb-detail-body'});
+        page.add_child(scroll(this._detailBody, {y_expand: true}));
+        return page;
+    }
+
+    _renderDetail(now) {
+        const b = this._detailBody;
+        clearChildren(b);
+        const q = this._detailId ? this._store.getQuest(this._detailId) : null;
+        const head = box({style_class: 'qb-actions-row'});
+        head.add_child(iconTextButton('go-previous-symbolic', 'Back', 'qb-small', () => this._setPage(this._returnPage ?? 'matrix')));
+        head.add_child(new St.Widget({x_expand: true}));
+        if (q) {
+            head.add_child(iconButton('user-trash-symbolic', 'qb-flat qb-danger', () => {
+                this._store.deleteQuest(q.id);
+                this._setPage(this._returnPage ?? 'matrix');
+            }, 'Delete quest'));
+        }
+        b.add_child(head);
+        if (!q) {
+            b.add_child(label('This quest no longer exists.', 'qb-empty'));
+            return;
+        }
+
+        const titleRow = box({style_class: 'qb-actions-row'});
+        titleRow.add_child(button({style_class: q.done ? 'qb-check checked' : 'qb-check', child: icon('qb-check', 'qb-check-icon'),
+            y_align: Clutter.ActorAlign.CENTER}, () => this._store.setDone(q.id, !q.done), 'detail-check'));
+        titleRow.add_child(entry('Title', 'qb-detail-title', t => t.trim() && this._store.updateQuest(q.id, {title: t.trim()}),
+            {text: q.title, x_expand: true}));
+        b.add_child(titleRow);
+        b.add_child(entry('Notes (Enter to save)', '', t => this._store.updateQuest(q.id, {notes: t}), {text: q.notes ?? '', x_expand: true}));
+
+        // XP line
+        const xpRow = box({style_class: 'qb-actions-row'});
+        const steps = q.steps ?? [];
+        xpRow.add_child(iconLabel('qb-sparkle', steps.length
+            ? `${questXp(q)} XP + ${groupBonus(q)} group bonus + ${STEP_XP} per step`
+            : `${questXp(q)} XP`, 'qb-muted'));
+        xpRow.add_child(new St.Widget({x_expand: true}));
+        const spent = fmtSpent(this._store.questTimeMs(q, now));
+        if (spent)
+            xpRow.add_child(iconLabel('qb-stopwatch', spent, 'qb-muted'));
+        b.add_child(xpRow);
+
+        // quadrant
+        b.add_child(label('Quadrant', 'qb-section-title'));
+        const qr = box({style_class: 'qb-actions-row'});
+        for (const quad of QUADRANTS) {
+            const btn = textButton(quad.title, `qb-small qb-move qb-${quad.id}`, () => this._store.updateQuest(q.id, {quadrant: quad.id}));
+            if (quad.id === q.quadrant)
+                btn.add_style_pseudo_class('checked');
+            qr.add_child(btn);
+        }
+        b.add_child(qr);
+
+        // steps
+        b.add_child(label(steps.length ? `Steps · ${this._store.stepProgress(q).done}/${steps.length}` : 'Steps (turn this into a group)', 'qb-section-title'));
+        const sl = box({vertical: true, style_class: 'qb-steps qb-steps-edit'});
+        for (const st of steps)
+            sl.add_child(this._stepRow(q, st, true));
+        sl.add_child(entry('Add a step, e.g. Exercise 1 — Enter', '', (txt, e) => {
+            this._store.addStep(q.id, txt);
+            e.set_text('');
+        }, {x_expand: true}));
+        b.add_child(sl);
+
+        // due + time
+        b.add_child(label('When', 'qb-section-title'));
+        const dr = box({style_class: 'qb-actions-row'});
+        dr.add_child(label('Due', 'qb-muted'));
+        const today = new Date();
+        for (const [txt, days] of [['Today', 0], ['Tomorrow', 1], ['+1 week', 7]]) {
+            const key = dateKey(addDays(today, days));
+            const btn = textButton(txt, 'qb-small qb-dur', () => this._store.updateQuest(q.id, {due: {date: key}}));
+            if (q.due?.date === key)
+                btn.add_style_pseudo_class('checked');
+            dr.add_child(btn);
+        }
+        if (q.due)
+            dr.add_child(label(fmtDate(new Date(`${q.due.date}T12:00`), '%a %e %b'), 'qb-muted'));
+        if (q.due)
+            dr.add_child(iconButton('edit-clear-symbolic', 'qb-flat qb-tiny', () => this._store.updateQuest(q.id, {due: null}), 'Clear due date'));
+        b.add_child(dr);
+
+        const tr = box({style_class: 'qb-actions-row'});
+        const s = q.scheduled;
+        tr.add_child(label(s ? `Time slot: ${fmtDate(new Date(`${s.date}T12:00`), '%a %e %b')}, ${fmtMinutes(s.start)} – ${fmtMinutes(s.start + (s.duration ?? 60))}`
+            : q.gcal ? 'Linked to a calendar event' : 'No time slot', 'qb-muted', {x_expand: true}));
+        tr.add_child(iconTextButton('x-office-calendar-symbolic', s ? 'Change time' : 'Pick a time', 'qb-small',
+            () => this.calendar.scheduleQuest(q.id)));
+        if (s)
+            tr.add_child(iconButton('edit-clear-symbolic', 'qb-flat qb-tiny', () => this._store.updateQuest(q.id, {scheduled: null}), 'Unschedule'));
+        b.add_child(tr);
+
+        // focus + links
         if (!q.done) {
-            const r2 = box({style_class: 'qb-actions-row'});
+            const fr = box({style_class: 'qb-actions-row'});
             const pomo = this._settings.get_int('pomodoro-minutes');
-            r2.add_child(iconTextButton('qb-target', `${pomo}m focus`, 'qb-small', () => this._store.startPomodoro(q.id, pomo)));
-            const slot = this.calendar.selectedSlotLabel;
-            r2.add_child(iconTextButton('x-office-calendar-symbolic', slot ? `At ${slot}` : 'Schedule', 'qb-small',
-                () => this.calendar.scheduleQuest(q.id)));
-            if (q.scheduled) {
-                r2.add_child(iconButton('edit-clear-symbolic', 'qb-flat qb-tiny', () => this._store.updateQuest(q.id, {scheduled: null}), 'Unschedule'));
-                for (const [txt, mins] of [['30m', 30], ['1h', 60], ['2h', 120]]) {
-                    const cls = (q.scheduled.duration ?? 60) === mins ? 'qb-small qb-dur checked' : 'qb-small qb-dur';
-                    r2.add_child(textButton(txt, cls, () => this._store.updateQuest(q.id, {scheduled: {...q.scheduled, duration: mins}})));
-                }
-            }
-            panel.add_child(r2);
-
-            const r3 = box({style_class: 'qb-actions-row'});
-            r3.add_child(label('Due', 'qb-muted'));
-            const today = new Date();
-            for (const [txt, days] of [['Today', 0], ['Tomorrow', 1], ['+1 week', 7]]) {
-                const key = dateKey(addDays(today, days));
-                const cls = q.due?.date === key ? 'qb-small qb-dur checked' : 'qb-small qb-dur';
-                r3.add_child(textButton(txt, cls, () => this._store.updateQuest(q.id, {due: {date: key}})));
-            }
-            if (q.due)
-                r3.add_child(iconButton('edit-clear-symbolic', 'qb-flat qb-tiny', () => this._store.updateQuest(q.id, {due: null}), 'Clear due date'));
-            r3.add_child(new St.Widget({x_expand: true}));
-            r3.add_child(label(`${questXp(q)} XP`, 'qb-muted'));
+            fr.add_child(iconTextButton('qb-target', `${pomo}m focus`, 'qb-small', () => this._store.startPomodoro(q.id, pomo)));
+            const running = this._store.isQuestRunning(q.id);
+            fr.add_child(iconTextButton(running ? 'qb-pause' : 'qb-play', running ? 'Pause stopwatch' : 'Stopwatch', 'qb-small',
+                () => this._store.toggleQuestTimer(q.id)));
+            fr.add_child(new St.Widget({x_expand: true}));
             if (q.link) {
-                r3.add_child(iconButton('external-link-symbolic', 'qb-flat qb-tiny', () => {
+                fr.add_child(iconTextButton('qb-book', 'Open in Notion', 'qb-small', () => {
                     Gio.AppInfo.launch_default_for_uri(q.link, null);
                     this.ctx.closeMenu();
-                }, 'Open in Notion'));
+                }));
             }
-            panel.add_child(r3);
+            b.add_child(fr);
         }
-        return panel;
     }
 
     // ---- quests page -----------------------------------------------------
@@ -607,6 +701,7 @@ export class Dashboard {
         case 'quests': this._renderQuestsPage(now); break;
         case 'timers': this._renderTimersPage(now); break;
         case 'shop': this.shopPage.render(); break;
+        case 'detail': this._renderDetail(now); break;
         }
         this.calendar.render();
     }

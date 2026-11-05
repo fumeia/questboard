@@ -21,6 +21,10 @@ export const QUADRANTS = [
 
 export const COLLECTIONS = ['quests', 'habits', 'checkins', 'rewards', 'ledger', 'sessions'];
 export const POMODORO_XP = 10;
+export const STEP_XP = 10;
+/** Finishing every step of a group pays the quest XP plus this share as a bonus. */
+export const GROUP_BONUS = 0.5;
+export const groupBonus = q => Math.max(10, Math.round(questXp(q) * GROUP_BONUS));
 export const PICKABLE_ICONS = ['star', 'heart', 'book', 'dumbbell', 'drop', 'moon', 'music', 'game', 'film',
     'pizza', 'leaf', 'bolt', 'coffee', 'gift', 'target', 'trophy', 'sparkle', 'flame', 'shield', 'repeat'];
 
@@ -452,13 +456,90 @@ export class Store {
             for (const t of this.data.timers)
                 if (t.questId === id && t.startedAt)
                     this._credit(t, now);
-            this._patch('quests', id, {done: true, doneAt: now});
-            this._put('ledger', {id: `quest.${id}`, at: now, amount: questXp(q), kind: 'quest', ref: id, note: q.title});
+            // Ticking a group ticks all its steps (each pays STEP_XP) and adds the group bonus.
+            const steps = (q.steps ?? []).map(st => ({...st}));
+            for (const st of steps) {
+                if (!st.done) {
+                    st.done = true;
+                    this._put('ledger', {id: `step.${id}.${st.id}`, at: now, amount: STEP_XP, kind: 'step', ref: id, note: st.title});
+                }
+            }
+            this._patch('quests', id, {done: true, doneAt: now, ...(steps.length ? {steps} : {})});
+            const bonus = steps.length ? groupBonus(q) : 0;
+            this._put('ledger', {id: `quest.${id}`, at: now, amount: questXp(q) + bonus, kind: 'quest', ref: id,
+                note: bonus ? `${q.title} (+${bonus} group bonus)` : q.title});
         } else {
             this._patch('quests', id, {done: false, doneAt: null});
             this._del('ledger', `quest.${id}`);
         }
         this._changed();
+    }
+
+    // ---- steps (a quest with steps is a "group") ---------------------------
+
+    addStep(questId, title) {
+        const q = this.getQuest(questId);
+        title = (title ?? '').trim();
+        if (!q || !title)
+            return;
+        const steps = [...(q.steps ?? []), {id: uid(), title, done: false}];
+        // adding a step to a finished quest re-opens it
+        this._patch('quests', questId, {steps, ...(q.done ? {done: false, doneAt: null} : {})});
+        if (q.done)
+            this._del('ledger', `quest.${questId}`);
+        this._changed();
+    }
+
+    toggleStep(questId, stepId) {
+        const q = this.getQuest(questId);
+        if (!q)
+            return;
+        const now = Date.now();
+        const steps = (q.steps ?? []).map(st => ({...st}));
+        const st = steps.find(x => x.id === stepId);
+        if (!st)
+            return;
+        st.done = !st.done;
+        if (st.done)
+            this._put('ledger', {id: `step.${questId}.${stepId}`, at: now, amount: STEP_XP, kind: 'step', ref: questId, note: st.title});
+        else
+            this._del('ledger', `step.${questId}.${stepId}`);
+        const allDone = steps.length > 0 && steps.every(x => x.done);
+        if (allDone && !q.done) {
+            this._patch('quests', questId, {steps});
+            this._changed();
+            this.setDone(questId, true); // pays quest XP + group bonus
+            return;
+        }
+        if (!st.done && q.done) {
+            this._patch('quests', questId, {steps, done: false, doneAt: null});
+            this._del('ledger', `quest.${questId}`);
+        } else {
+            this._patch('quests', questId, {steps});
+        }
+        this._changed();
+    }
+
+    renameStep(questId, stepId, title) {
+        const q = this.getQuest(questId);
+        title = (title ?? '').trim();
+        if (!q || !title)
+            return;
+        this._patch('quests', questId, {steps: (q.steps ?? []).map(st => (st.id === stepId ? {...st, title} : st))});
+        this._changed();
+    }
+
+    deleteStep(questId, stepId) {
+        const q = this.getQuest(questId);
+        if (!q)
+            return;
+        this._patch('quests', questId, {steps: (q.steps ?? []).filter(st => st.id !== stepId)});
+        this._changed(); // XP already earned for that step stays
+    }
+
+    stepProgress(q) {
+        const steps = q?.steps ?? [];
+        return {done: steps.filter(s => s.done).length, total: steps.length};
     }
 
     deleteQuest(id) {

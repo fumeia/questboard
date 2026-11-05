@@ -1,5 +1,13 @@
 // Day timeline: Google Calendar events (read via the shell's calendar server,
 // written via eds-helper.js) merged with quests scheduled into time slots.
+//
+// Interaction: click once = start, click again = end → a confirm panel opens
+// (new quest / existing quest / calendar event). Clicking a quest block edits its
+// time; clicking an event edits the event. Quests can be *linked* to an event
+// (quest.gcal) — then the event itself shows the quest marker, no duplicate block.
+//
+// Performance: the hour grid is built once per width; only the blocks layer is
+// rebuilt, and only when its content signature changes.
 
 import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
@@ -18,8 +26,8 @@ import {
 
 const HOUR_H = 44;
 const GUTTER = 46;
+const SNAP = 15; // minutes
 
-/** Assign side-by-side columns to overlapping items. */
 function layoutColumns(items) {
     items.sort((a, b) => a.start - b.start || b.end - a.end);
     let cluster = [], colEnds = [], clusterEnd = -Infinity;
@@ -53,6 +61,9 @@ function hexToRgba(hex, a) {
     return m ? `rgba(${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)},${a})` : null;
 }
 
+const minsOf = d => d.getHours() * 60 + d.getMinutes();
+const linkKey = (source, uid, rid) => `${source}\n${uid}\n${rid ?? ''}`;
+
 export class CalendarView {
     constructor(ctx) {
         this._ctx = ctx;
@@ -60,20 +71,18 @@ export class CalendarView {
         this._settings = ctx.settings;
         this._eds = ctx.eds;
         this._log = ctx.log;
-        this._onQuestClick = ctx.onQuestClick;
         this._viewDate = startOfDay(new Date());
-        this._selSlot = null;
-        this._quickMode = 'quest';
-        this._quickQuadrant = 'q2';
-        this._quickCal = null;
+        this._pick = null; // first click {start}
+        this._editor = null;
+        this._status = null;
         this._source = null;
         this._sourceIds = [];
         this._renderId = 0;
         this._pendingScroll = null;
         this._tlWidth = 280;
-        this._editor = null; // {mode:'new'|'edit', ...draft}
-        this._status = null;
+        this._blocksSig = '';
         this._open = false;
+        this._calError = null;
 
         this.actor = box({vertical: true, style_class: 'qb-cal', y_expand: true});
         this.actor.connect('destroy', () => this._onDestroy());
@@ -85,20 +94,33 @@ export class CalendarView {
         head.add_child(iconButton('go-next-symbolic', 'qb-flat', () => this.setDate(addDays(this._viewDate, 1)), 'Next day'));
         this._title = label('', 'qb-cal-title', {ellipsize: true, x_expand: true});
         head.add_child(this._title);
-        head.add_child(iconButton('qb-plus', 'qb-flat', () => this.openNewEvent(), 'New event'));
+        head.add_child(iconButton('qb-plus', 'qb-flat', () => this._openSlot(this._defaultStart(), null), 'New'));
         this.actor.add_child(head);
 
         this._week = box({style_class: 'qb-week'});
         this.actor.add_child(this._week);
         this._allDay = box({vertical: true, style_class: 'qb-allday'});
         this.actor.add_child(this._allDay);
-        this._quick = box({vertical: true, style_class: 'qb-quick', visible: false});
-        this.actor.add_child(this._quick);
+        this._hint = box({style_class: 'qb-quick qb-pick-hint', visible: false});
+        this.actor.add_child(this._hint);
         this._editorBox = box({vertical: true, style_class: 'qb-editor', visible: false});
         this.actor.add_child(this._editorBox);
 
+        // timeline: [bg grid][hit layer][selection][blocks][now line]
         this._timeline = new St.Widget({style_class: 'qb-timeline'});
         this._timeline.set_height(24 * HOUR_H);
+        this._bg = new St.Widget();
+        this._timeline.add_child(this._bg);
+        this._hit = new St.Widget({reactive: true, style_class: 'qb-slot-layer'});
+        this._hit.connect('button-release-event', guard((_a, ev) => this._onTimelineClick(ev), 'timeline'));
+        this._timeline.add_child(this._hit);
+        this._sel = new St.Widget({style_class: 'qb-slot selected', visible: false});
+        this._timeline.add_child(this._sel);
+        this._blocks = new St.Widget();
+        this._timeline.add_child(this._blocks);
+        this._nowLine = new St.Widget({style_class: 'qb-now-line', visible: false});
+        this._timeline.add_child(this._nowLine);
+
         const tlWrap = box({vertical: true});
         tlWrap.add_child(this._timeline);
         this._scroll = scroll(tlWrap, {y_expand: true, style_class: 'qb-scroll qb-cal-scroll vfade'});
@@ -109,13 +131,32 @@ export class CalendarView {
 
         this._footer = box({style_class: 'qb-cal-foot'});
         this.actor.add_child(this._footer);
-        this._nowLine = null;
     }
 
     setWidth(w) {
         this.actor.set_width(w);
         this._tlWidth = Math.max(160, w - 28);
         this._timeline.set_width(this._tlWidth);
+        this._buildGrid();
+        this._blocksSig = '';
+    }
+
+    _buildGrid() {
+        clearChildren(this._bg);
+        const width = this._tlWidth;
+        for (let h = 0; h < 24; h++) {
+            const y = h * HOUR_H;
+            const line = new St.Widget({style_class: 'qb-hour-line'});
+            line.set_position(GUTTER - 4, y);
+            line.set_size(width - GUTTER + 4, 1);
+            this._bg.add_child(line);
+            const lbl = label(fmtHour(h), 'qb-hour-label');
+            lbl.set_position(0, Math.max(0, y - 7));
+            lbl.set_width(GUTTER - 8);
+            this._bg.add_child(lbl);
+        }
+        this._hit.set_position(GUTTER, 0);
+        this._hit.set_size(width - GUTTER - 2, 24 * HOUR_H);
     }
 
     // ---- event source ----------------------------------------------------
@@ -135,7 +176,6 @@ export class CalendarView {
         ];
     }
 
-    /** The shell's calendar server keeps one shared range; claim ours. */
     _requestRange(force = false) {
         if (!this._source)
             return;
@@ -152,10 +192,24 @@ export class CalendarView {
     _queueRender() {
         if (this._renderId || !this._open)
             return;
-        this._renderId = GLib.timeout_add(GLib.PRIORITY_DEFAULT_IDLE, 120, () => {
+        this._renderId = GLib.timeout_add(GLib.PRIORITY_DEFAULT_IDLE, 150, () => {
             this._renderId = 0;
             this.render();
             return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _loadCalendars(force = false) {
+        if (!this._eds || this._eds.unavailable)
+            return;
+        this._eds.calendars(force).then(() => {
+            this._calError = null;
+            this._blocksSig = '';
+            this._queueRender();
+        }).catch(e => {
+            this._calError = e.message;
+            this._log.warn('calendar', `list failed: ${e.message}`);
+            this._queueRender();
         });
     }
 
@@ -165,27 +219,27 @@ export class CalendarView {
         this._open = true;
         this._ensureSource();
         this._viewDate = startOfDay(new Date());
-        this._selSlot = null;
+        this._pick = null;
         this._editor = null;
         this._status = null;
+        this._blocksSig = '';
         this._requestRange(true);
         this._scrollToFocus();
-        if (this._eds && !this._eds.unavailable)
-            this._eds.calendars().then(() => this._queueRender()).catch(e => this._log.warn('calendar', `list failed: ${e.message}`));
+        this._loadCalendars();
     }
 
     onClose() {
         this._open = false;
         this._editor = null;
-        this._selSlot = null;
+        this._pick = null;
     }
 
     setDate(d) {
         const day = startOfDay(d);
         const changed = !sameDay(day, this._viewDate);
         this._viewDate = day;
-        this._selSlot = null;
-        if (this._editor?.mode === 'new')
+        this._pick = null;
+        if (this._editor && this._editor.kind === 'slot' && !this._editor.questId)
             this._editor.date = day;
         this._requestRange(false);
         this.render();
@@ -193,27 +247,35 @@ export class CalendarView {
             this._scrollToFocus();
     }
 
+    /** "Schedule" from the quest details page: open the slot editor for that quest. */
     scheduleQuest(id) {
-        let start = this._selSlot;
-        if (start === null) {
-            const now = new Date();
-            start = sameDay(now, this._viewDate)
-                ? Math.min(23 * 60, Math.ceil((now.getHours() * 60 + now.getMinutes()) / 30) * 30)
-                : this._settings.get_int('day-start-hour') * 60;
+        const q = this._store.getQuest(id);
+        if (!q)
+            return;
+        const s = q.scheduled;
+        if (s?.date) {
+            const [y, m, d] = s.date.split('-').map(Number);
+            this._viewDate = new Date(y, m - 1, d);
         }
-        this._selSlot = null;
-        this._store.updateQuest(id, {scheduled: {date: dateKey(this._viewDate), start, duration: 60}});
+        const start = s?.start ?? this._defaultStart();
+        this._openSlot(start, start + (s?.duration ?? 60), {questId: id});
     }
 
     get selectedSlotLabel() {
-        return this._selSlot === null ? null : fmtMinutes(this._selSlot);
+        return null;
     }
 
     tick(now) {
-        if (!this._nowLine)
-            return;
         const d = new Date(now);
-        this._nowLine.set_y(Math.round((d.getHours() * 60 + d.getMinutes()) * HOUR_H / 60));
+        if (this._nowLine.visible)
+            this._nowLine.set_y(Math.round(minsOf(d) * HOUR_H / 60));
+    }
+
+    _defaultStart() {
+        const now = new Date();
+        return sameDay(now, this._viewDate)
+            ? Math.min(23 * 60, Math.ceil((minsOf(now) + 1) / 30) * 30)
+            : this._settings.get_int('day-start-hour') * 60;
     }
 
     // ---- calendars -------------------------------------------------------
@@ -229,105 +291,82 @@ export class CalendarView {
     }
 
     _calName(uid) {
-        const c = (this._eds?.cachedCalendars ?? []).find(x => x.uid === uid);
-        return c ? c.name : 'Calendar';
+        return (this._eds?.cachedCalendars ?? []).find(x => x.uid === uid)?.name ?? 'Calendar';
     }
 
-    // ---- quick add (click on empty slot) --------------------------------
-
-    _selectSlot(minutes) {
-        this._selSlot = minutes;
-        this._editor = null;
-        this.render();
-        if (minutes !== null)
-            this._quickEntry?.grab_key_focus();
+    /** Quest linked to an event (or null). */
+    _linkedQuest(source, uid, rid) {
+        const k = linkKey(source, uid, rid);
+        const kAll = linkKey(source, uid, '');
+        return this._store.quests.find(q => q.gcal && (linkKey(q.gcal.source, q.gcal.uid, q.gcal.rid) === k ||
+            (!q.gcal.rid && linkKey(q.gcal.source, q.gcal.uid, '') === kAll))) ?? null;
     }
 
-    _renderQuick() {
-        clearChildren(this._quick);
-        this._quickEntry = null;
-        this._quick.visible = this._selSlot !== null && !this._editor;
-        if (!this._quick.visible)
+    // ---- two-click selection ---------------------------------------------
+
+    _onTimelineClick(ev) {
+        const [ok, , y] = this._hit.transform_stage_point(...ev.get_coords());
+        if (!ok)
+            return Clutter.EVENT_STOP;
+        const m = Math.max(0, Math.min(24 * 60 - SNAP, Math.round(y / HOUR_H * 60 / SNAP) * SNAP));
+        if (!this._pick) {
+            this._editor = null;
+            this._pick = {start: m};
+            this._showSelection(m, m + SNAP);
+            this._renderHint();
+            this._renderEditor();
+            return Clutter.EVENT_STOP;
+        }
+        let a = this._pick.start, b = m;
+        if (b < a)
+            [a, b] = [b, a];
+        b = Math.max(b + (b === a ? 30 : 0), a + SNAP);
+        this._pick = null;
+        this._openSlot(a, b);
+        return Clutter.EVENT_STOP;
+    }
+
+    _showSelection(start, end) {
+        this._sel.set_position(GUTTER, start * HOUR_H / 60);
+        this._sel.set_size(this._tlWidth - GUTTER - 2, Math.max(4, (end - start) * HOUR_H / 60));
+        this._sel.show();
+    }
+
+    _renderHint() {
+        clearChildren(this._hint);
+        this._hint.visible = !!this._pick;
+        if (!this._pick)
             return;
-        const top = box({style_class: 'qb-quick-top'});
-        top.add_child(label(`${fmtDate(this._viewDate, '%a %e %b')} · ${fmtMinutes(this._selSlot)}`, 'qb-quick-label', {x_expand: true}));
-        for (const [m, text] of [['quest', 'Quest'], ['event', 'Event']]) {
-            const b = textButton(text, 'qb-small qb-seg', () => {
-                this._quickMode = m;
-                this.render();
-                this._quickEntry?.grab_key_focus();
-            });
-            if (this._quickMode === m)
-                b.add_style_pseudo_class('checked');
-            top.add_child(b);
-        }
-        top.add_child(iconButton('window-close-symbolic', 'qb-flat qb-tiny', () => this._selectSlot(null), 'Cancel'));
-        this._quick.add_child(top);
-
-        const row = box({style_class: 'qb-quick-top'});
-        const isEvent = this._quickMode === 'event';
-        this._quickEntry = entry(isEvent ? 'Event title… (Enter)' : 'Quest for this slot… (Enter)', '', t => this._quickAdd(t), {x_expand: true});
-        row.add_child(this._quickEntry);
-        if (isEvent) {
-            row.add_child(iconButton('document-edit-symbolic', 'qb-flat qb-tiny', () =>
-                this.openNewEvent(this._selSlot, this._quickEntry.get_text()), 'More options'));
-        } else {
-            for (const q of QUADRANTS) {
-                const b = button({style_class: `qb-qdot qb-${q.id}`, accessible_name: q.title, y_align: Clutter.ActorAlign.CENTER}, () => {
-                    this._quickQuadrant = q.id;
-                    this.render();
-                    this._quickEntry?.grab_key_focus();
-                }, 'qdot');
-                if (q.id === this._quickQuadrant)
-                    b.add_style_pseudo_class('checked');
-                row.add_child(b);
-            }
-        }
-        this._quick.add_child(row);
-        if (isEvent) {
-            const cal = this._quickCal ? this._writableCals().find(c => c.uid === this._quickCal) : this._defaultCal();
-            this._quick.add_child(this._calPicker(cal?.uid ?? null, uid => {
-                this._quickCal = uid;
-                this.render();
-            }));
-        }
+        this._hint.add_child(label(`Start ${fmtMinutes(this._pick.start)} — now click the end time`, 'qb-quick-label', {x_expand: true}));
+        this._hint.add_child(iconButton('window-close-symbolic', 'qb-flat qb-tiny', () => {
+            this._pick = null;
+            this._sel.hide();
+            this._renderHint();
+        }, 'Cancel'));
     }
 
-    _quickAdd(text) {
-        text = text.trim();
-        if (this._selSlot === null || !text)
-            return;
-        if (this._quickMode === 'quest') {
-            this._store.addQuest(text, this._quickQuadrant, {date: dateKey(this._viewDate), start: this._selSlot, duration: 60});
-            this._selSlot = null;
-            this.render();
-            return;
-        }
-        const start = new Date(this._viewDate.getTime() + this._selSlot * 60000);
-        const cal = this._quickCal ?? this._defaultCal()?.uid;
-        this._selSlot = null;
-        this._saveEvent({mode: 'new', source: cal, summary: text, start, end: new Date(start.getTime() + 3600000), allDay: false});
-    }
+    // ---- editors -----------------------------------------------------------
 
-    // ---- event editor ----------------------------------------------------
-
-    openNewEvent(slot = null, title = '') {
-        const startMin = slot ?? (sameDay(new Date(), this._viewDate)
-            ? Math.ceil((new Date().getHours() * 60 + new Date().getMinutes() + 1) / 30) * 30
-            : this._settings.get_int('day-start-hour') * 60);
-        const start = new Date(this._viewDate.getTime() + Math.min(startMin, 23 * 60) * 60000);
-        this._selSlot = null;
-        this._editor = {mode: 'new', source: this._defaultCal()?.uid ?? null, summary: title, start,
-            end: new Date(start.getTime() + 3600000), allDay: false, location: '', description: ''};
+    /** Confirm panel for a time range: new quest / existing quest / calendar event. */
+    _openSlot(start, end, {questId = null} = {}) {
+        end ??= start + 60;
+        this._pick = null;
+        const q = questId ? this._store.getQuest(questId) : null;
+        this._editor = {
+            kind: 'slot', date: this._viewDate, start, end, questId,
+            title: q?.title ?? '', target: questId ? 'existing' : 'new', pickQuest: questId,
+            quadrant: 'q2', source: this._defaultCal()?.uid ?? null, alsoGoogle: !!q?.gcal, location: '',
+        };
+        this._showSelection(start, end);
         this.render();
     }
 
     _openEvent(ev) {
         const {source, uid, rid} = parseEventId(ev.id);
-        const allDay = ev.allDay;
-        this._selSlot = null;
-        this._editor = {mode: 'edit', source, uid, rid, summary: ev.title, start: new Date(ev.date), end: new Date(ev.evEnd),
-            allDay, location: '', description: '', recurring: !!rid, scope: 'this', loading: true};
+        this._pick = null;
+        this._sel.hide();
+        this._editor = {kind: 'event', mode: 'edit', source, uid, rid, summary: ev.title, start: new Date(ev.date),
+            end: new Date(ev.evEnd), allDay: ev.allDay, location: '', description: '', recurring: !!rid, scope: 'this', loading: true};
         this.render();
         if (!this._eds)
             return;
@@ -335,8 +374,7 @@ export class CalendarView {
         this._eds.call({cmd: 'get', source, uid, rid}).then(d => {
             if (this._editor !== ed)
                 return;
-            Object.assign(ed, {location: d.location, description: d.description, allDay: d.allDay,
-                recurring: d.recurring, loading: false});
+            Object.assign(ed, {location: d.location, description: d.description, allDay: d.allDay, recurring: d.recurring, loading: false});
             this.render();
         }).catch(e => {
             if (this._editor !== ed)
@@ -347,42 +385,287 @@ export class CalendarView {
         });
     }
 
+    _closeEditor() {
+        this._editor = null;
+        this._status = null;
+        this._sel.hide();
+        this.render();
+    }
+
+    _setStatus(kind, text) {
+        this._status = {kind, text};
+        this.render();
+    }
+
+    _timeRow(ed, onShift) {
+        const tr = box({style_class: 'qb-actions-row'});
+        const startE = entry('Start', 'qb-time', () => ed._save?.(), {text: fmtMinutes(ed.start)});
+        const endE = entry('End', 'qb-time', () => ed._save?.(), {text: fmtMinutes(ed.end)});
+        tr.add_child(startE);
+        tr.add_child(label('–', 'qb-muted'));
+        tr.add_child(endE);
+        tr.add_child(new St.Widget({x_expand: true}));
+        const read = () => {
+            const s = parseTime(startE.get_text());
+            const e = parseTime(endE.get_text());
+            if (s === null || e === null) {
+                this._setStatus('error', 'Times look like 14:30 or 2:30pm');
+                return false;
+            }
+            ed.start = s;
+            ed.end = e <= s ? Math.min(24 * 60, s + 30) : e;
+            return true;
+        };
+        const shift = m => {
+            if (!read())
+                return;
+            ed.start = Math.max(0, ed.start + m);
+            ed.end = Math.min(24 * 60, ed.end + m);
+            onShift?.();
+            this._showSelection(ed.start, ed.end);
+            this.render();
+        };
+        tr.add_child(textButton('−15', 'qb-small', () => shift(-15)));
+        tr.add_child(textButton('+15', 'qb-small', () => shift(15)));
+        return {row: tr, read};
+    }
+
+    _dateRow(ed, extra = null) {
+        const dr = box({style_class: 'qb-actions-row'});
+        const shiftDay = n => {
+            ed.date = addDays(ed.date, n);
+            this._viewDate = ed.date;
+            this._requestRange(false);
+            this.render();
+        };
+        dr.add_child(iconButton('go-previous-symbolic', 'qb-flat qb-tiny', () => shiftDay(-1), 'Day earlier'));
+        dr.add_child(label(fmtDate(ed.date, '%a %e %b'), 'qb-editor-date', {x_expand: true, x_align: Clutter.ActorAlign.CENTER}));
+        dr.add_child(iconButton('go-next-symbolic', 'qb-flat qb-tiny', () => shiftDay(1), 'Day later'));
+        if (extra)
+            dr.add_child(extra);
+        return dr;
+    }
+
+    _seg(options, value, onPick) {
+        const row = box({style_class: 'qb-actions-row'});
+        for (const [v, text] of options) {
+            const b = textButton(text, 'qb-small qb-seg', () => onPick(v));
+            if (v === value)
+                b.add_style_pseudo_class('checked');
+            row.add_child(b);
+        }
+        return row;
+    }
+
     _renderEditor() {
         clearChildren(this._editorBox);
         const ed = this._editor;
         this._editorBox.visible = !!ed;
         if (!ed)
             return;
+        if (ed.kind === 'slot')
+            this._renderSlotEditor(ed);
+        else
+            this._renderEventEditor(ed);
+    }
+
+    _renderSlotEditor(ed) {
+        const box_ = this._editorBox;
+        const editingQuest = ed.questId ? this._store.getQuest(ed.questId) : null;
+        const head = box({style_class: 'qb-actions-row'});
+        head.add_child(label(editingQuest ? 'Quest time' : 'New time slot', 'qb-editor-title', {x_expand: true}));
+        head.add_child(iconButton('window-close-symbolic', 'qb-flat qb-tiny', () => this._closeEditor(), 'Close'));
+        box_.add_child(head);
+
+        if (!editingQuest) {
+            box_.add_child(this._seg([['new', 'New quest'], ['existing', 'Existing quest'], ['event', 'Event']], ed.target, v => {
+                ed.target = v;
+                this.render();
+            }));
+        }
+
+        if (editingQuest || ed.target !== 'existing') {
+            const t = entry(ed.target === 'event' ? 'Event title' : 'Quest title', '', () => ed._save?.(), {text: ed.title, x_expand: true});
+            t.clutter_text.connect('text-changed', () => (ed.title = t.get_text()));
+            box_.add_child(t);
+        }
+
+        box_.add_child(this._dateRow(ed));
+        const times = this._timeRow(ed);
+        box_.add_child(times.row);
+
+        if (!editingQuest && ed.target === 'existing') {
+            const list = box({vertical: true, style_class: 'qb-picker'});
+            const open = this._store.openQuests();
+            if (!open.length)
+                list.add_child(label('No open quests', 'qb-muted'));
+            for (const q of open) {
+                const inner = box({});
+                inner.add_child(new St.Widget({style_class: `qb-dot qb-${q.quadrant}`, y_align: Clutter.ActorAlign.CENTER}));
+                inner.add_child(label(q.title, '', {ellipsize: true, x_expand: true}));
+                list.add_child(button({style_class: q.id === ed.pickQuest ? 'qb-btn qb-pick checked' : 'qb-btn qb-pick', child: inner,
+                    x_expand: true}, () => {
+                    ed.pickQuest = q.id;
+                    this.render();
+                }, 'pick-quest'));
+            }
+            box_.add_child(scroll(list, {style_class: 'qb-scroll qb-pick-scroll', natural_height: 120}));
+        }
+
+        if (!editingQuest && ed.target === 'new') {
+            const row = box({style_class: 'qb-actions-row'});
+            for (const q of QUADRANTS) {
+                const b = button({style_class: `qb-qdot qb-${q.id}`, accessible_name: q.title, y_align: Clutter.ActorAlign.CENTER}, () => {
+                    ed.quadrant = q.id;
+                    this.render();
+                }, 'qdot');
+                if (q.id === ed.quadrant)
+                    b.add_style_pseudo_class('checked');
+                row.add_child(b);
+            }
+            row.add_child(label(QUADRANTS.find(q => q.id === ed.quadrant).title, 'qb-muted'));
+            box_.add_child(row);
+        }
+
+        // Google: event target always; quests optionally (linked event)
+        if (ed.target === 'event') {
+            box_.add_child(this._calPicker(ed.source, uid => {
+                ed.source = uid;
+                this.render();
+            }));
+        } else {
+            const already = editingQuest?.gcal;
+            const g = textButton(already ? 'In Google Calendar ✓' : 'Also add to Google Calendar', 'qb-small qb-seg', () => {
+                if (already)
+                    return;
+                ed.alsoGoogle = !ed.alsoGoogle;
+                this.render();
+            });
+            if (ed.alsoGoogle || already)
+                g.add_style_pseudo_class('checked');
+            const gr = box({style_class: 'qb-actions-row'});
+            gr.add_child(g);
+            box_.add_child(gr);
+            if (ed.alsoGoogle && !already)
+                box_.add_child(this._calPicker(ed.source, uid => {
+                    ed.source = uid;
+                    this.render();
+                }));
+        }
+
+        ed._save = guard(() => {
+            if (!times.read())
+                return;
+            this._saveSlot(ed);
+        }, 'slot-save');
+
+        const actions = box({style_class: 'qb-actions-row'});
+        if (editingQuest) {
+            actions.add_child(textButton('Unschedule', 'qb-small', () => {
+                this._store.updateQuest(editingQuest.id, {scheduled: null});
+                this._closeEditor();
+            }));
+            actions.add_child(textButton('Details', 'qb-small', () => this._ctx.onQuestClick(editingQuest.id)));
+        }
+        actions.add_child(new St.Widget({x_expand: true}));
+        if (this._status)
+            actions.add_child(label(this._status.text, this._status.kind === 'error' ? 'qb-status error' : 'qb-status', {ellipsize: true}));
+        actions.add_child(textButton(ed.saving ? 'Saving…' : 'Save', 'qb-small qb-accent', () => ed._save()));
+        box_.add_child(actions);
+    }
+
+    async _saveSlot(ed) {
+        const date = dateKey(ed.date);
+        const scheduled = {date, start: ed.start, duration: Math.max(SNAP, ed.end - ed.start)};
+        const startDate = new Date(startOfDay(ed.date).getTime() + ed.start * 60000);
+        const endDate = new Date(startOfDay(ed.date).getTime() + ed.end * 60000);
+        const editing = ed.questId ? this._store.getQuest(ed.questId) : null;
+        let questId = null;
+
+        if (ed.target === 'event' && !editing) {
+            if (!ed.title.trim())
+                return this._setStatus('error', 'Give it a title');
+            return this._saveEvent({mode: 'new', source: ed.source, summary: ed.title, start: startDate, end: endDate, allDay: false,
+                location: '', description: ''});
+        }
+        if (editing) {
+            this._store.updateQuest(editing.id, {scheduled, ...(ed.title.trim() && ed.title !== editing.title ? {title: ed.title.trim()} : {})});
+            questId = editing.id;
+        } else if (ed.target === 'existing') {
+            if (!ed.pickQuest)
+                return this._setStatus('error', 'Pick a quest');
+            this._store.updateQuest(ed.pickQuest, {scheduled});
+            questId = ed.pickQuest;
+        } else {
+            const q = this._store.addQuest(ed.title, ed.quadrant, scheduled);
+            if (!q)
+                return this._setStatus('error', 'Give it a title');
+            questId = q.id;
+        }
+
+        const q = this._store.getQuest(questId);
+        try {
+            if (q?.gcal) {
+                // linked event follows the quest's time / title
+                await this._eds.call({cmd: 'update', source: q.gcal.source, uid: q.gcal.uid, rid: q.gcal.rid, scope: 'this',
+                    summary: q.title, start: Math.floor(startDate / 1000), end: Math.floor(endDate / 1000), allDay: false});
+            } else if (ed.alsoGoogle && q) {
+                if (!ed.source)
+                    return this._setStatus('error', 'Pick a calendar (or untick Google)');
+                const r = await this._eds.call({cmd: 'create', source: ed.source, summary: q.title,
+                    start: Math.floor(startDate / 1000), end: Math.floor(endDate / 1000), allDay: false, location: '', description: 'Questboard quest'});
+                this._store.updateQuest(q.id, {gcal: {source: ed.source, uid: r.uid, rid: ''}});
+                this._settings.set_string('default-calendar', ed.source);
+            }
+        } catch (e) {
+            this._log.warn('calendar', `google sync of quest failed: ${e.message}`);
+            this._editor = null;
+            this._sel.hide();
+            return this._setStatus('error', `Saved as quest, Google failed: ${e.message.slice(0, 80)}`);
+        }
+        this._editor = null;
+        this._status = null;
+        this._sel.hide();
+        this._requestRange(true);
+        this.render();
+    }
+
+    _renderEventEditor(ed) {
+        const bx = this._editorBox;
         if (this._eds?.unavailable) {
-            this._editorBox.add_child(label(this._eds.unavailable.error, 'qb-editor-title'));
-            this._editorBox.add_child(label(`Run once in a terminal:\n${this._eds.unavailable.hint}`, 'qb-muted', {wrap: true}));
+            bx.add_child(label(this._eds.unavailable.error, 'qb-editor-title'));
+            bx.add_child(label(`Run once in a terminal:\n${this._eds.unavailable.hint}`, 'qb-muted', {wrap: true}));
             const r = box({style_class: 'qb-actions-row'});
             r.add_child(new St.Widget({x_expand: true}));
             r.add_child(textButton('Close', 'qb-small', () => this._closeEditor()));
-            this._editorBox.add_child(r);
+            bx.add_child(r);
             return;
         }
-
         const head = box({style_class: 'qb-actions-row'});
-        head.add_child(label(ed.mode === 'new' ? 'New event' : (ed.loading ? 'Loading…' : 'Edit event'), 'qb-editor-title', {x_expand: true}));
+        head.add_child(label(ed.mode === 'new' ? 'New event' : (ed.loading ? 'Loading…' : 'Event'), 'qb-editor-title', {x_expand: true}));
         head.add_child(iconButton('window-close-symbolic', 'qb-flat qb-tiny', () => this._closeEditor(), 'Close'));
-        this._editorBox.add_child(head);
+        bx.add_child(head);
+
+        const linked = ed.mode === 'edit' ? this._linkedQuest(ed.source, ed.uid, ed.rid) : null;
+        if (linked) {
+            const lr = box({style_class: 'qb-actions-row qb-linked'});
+            lr.add_child(button({style_class: linked.done ? 'qb-check checked' : 'qb-check', child: icon('qb-check', 'qb-check-icon'),
+                y_align: Clutter.ActorAlign.CENTER}, () => this._store.setDone(linked.id, !linked.done), 'linked-check'));
+            lr.add_child(label(`Quest: ${linked.title}`, '', {ellipsize: true, x_expand: true}));
+            lr.add_child(textButton('Open', 'qb-small', () => this._ctx.onQuestClick(linked.id)));
+            lr.add_child(iconButton('edit-clear-symbolic', 'qb-flat qb-tiny', () => {
+                this._store.updateQuest(linked.id, {gcal: null});
+                this.render();
+            }, 'Unlink'));
+            bx.add_child(lr);
+        }
 
         const title = entry('Title', '', () => save(), {text: ed.summary ?? '', x_expand: true});
         title.clutter_text.connect('text-changed', () => (ed.summary = title.get_text()));
-        this._editorBox.add_child(title);
+        bx.add_child(title);
 
-        // date row
-        const dr = box({style_class: 'qb-actions-row'});
-        const shiftDays = n => {
-            ed.start = addDays(ed.start, n);
-            ed.end = addDays(ed.end, n);
-            this.render();
-        };
-        dr.add_child(iconButton('go-previous-symbolic', 'qb-flat qb-tiny', () => shiftDays(-1), 'Day earlier'));
-        dr.add_child(label(fmtDate(ed.start, '%a %e %b'), 'qb-editor-date', {x_expand: true, x_align: Clutter.ActorAlign.CENTER}));
-        dr.add_child(iconButton('go-next-symbolic', 'qb-flat qb-tiny', () => shiftDays(1), 'Day later'));
-        const ad = textButton('All day', 'qb-small qb-seg', () => {
+        const dayEd = {date: startOfDay(ed.start)};
+        const allDayBtn = textButton('All day', 'qb-small qb-seg', () => {
             ed.allDay = !ed.allDay;
             if (ed.allDay) {
                 ed.start = startOfDay(ed.start);
@@ -394,55 +677,45 @@ export class CalendarView {
             this.render();
         });
         if (ed.allDay)
-            ad.add_style_pseudo_class('checked');
-        dr.add_child(ad);
-        this._editorBox.add_child(dr);
-
-        // time row
-        let startE = null, endE = null;
-        if (!ed.allDay) {
-            const tr = box({style_class: 'qb-actions-row'});
-            const minsOf = d => d.getHours() * 60 + d.getMinutes();
-            startE = entry('Start', 'qb-time', () => save(), {text: fmtMinutes(minsOf(ed.start))});
-            endE = entry('End', 'qb-time', () => save(), {text: fmtMinutes(minsOf(ed.end))});
-            tr.add_child(startE);
-            tr.add_child(label('–', 'qb-muted'));
-            tr.add_child(endE);
-            tr.add_child(new St.Widget({x_expand: true}));
-            const shift = m => {
-                readTimes();
-                ed.start = new Date(ed.start.getTime() + m * 60000);
-                ed.end = new Date(ed.end.getTime() + m * 60000);
-                this.render();
-            };
-            tr.add_child(textButton('−15', 'qb-small', () => shift(-15)));
-            tr.add_child(textButton('+15', 'qb-small', () => shift(15)));
-            this._editorBox.add_child(tr);
-        }
-        const readTimes = () => {
-            if (!startE)
-                return true;
-            const s = parseTime(startE.get_text());
-            const e = parseTime(endE.get_text());
-            if (s === null || e === null) {
-                this._setStatus('error', 'Times look like 14:30 or 2:30pm');
-                return false;
+            allDayBtn.add_style_pseudo_class('checked');
+        const dr = this._dateRow(dayEd, allDayBtn);
+        bx.add_child(dr);
+        // keep date edits in sync with ed.start/end
+        const syncDay = () => {
+            const delta = dayEd.date - startOfDay(ed.start);
+            if (delta) {
+                ed.start = new Date(ed.start.getTime() + delta);
+                ed.end = new Date(ed.end.getTime() + delta);
             }
-            const day = startOfDay(ed.start);
-            ed.start = new Date(day.getTime() + s * 60000);
-            ed.end = new Date(day.getTime() + (e <= s ? e + 1440 : e) * 60000);
+        };
+
+        let times = null;
+        const tEd = {start: minsOf(ed.start), end: Math.max(minsOf(ed.start) + SNAP, minsOf(ed.end) || 24 * 60)};
+        if (!ed.allDay) {
+            times = this._timeRow(tEd);
+            bx.add_child(times.row);
+        }
+        const applyTimes = () => {
+            syncDay();
+            if (times && !times.read())
+                return false;
+            if (!ed.allDay) {
+                const day = startOfDay(ed.start);
+                ed.start = new Date(day.getTime() + tEd.start * 60000);
+                ed.end = new Date(day.getTime() + tEd.end * 60000);
+            }
             return true;
         };
 
         const loc = entry('Location', '', () => save(), {text: ed.location ?? '', x_expand: true});
         loc.clutter_text.connect('text-changed', () => (ed.location = loc.get_text()));
-        this._editorBox.add_child(loc);
+        bx.add_child(loc);
         const notes = entry('Notes', '', () => save(), {text: ed.description ?? '', x_expand: true});
         notes.clutter_text.connect('text-changed', () => (ed.description = notes.get_text()));
-        this._editorBox.add_child(notes);
+        bx.add_child(notes);
 
         if (ed.mode === 'new') {
-            this._editorBox.add_child(this._calPicker(ed.source, uid => {
+            bx.add_child(this._calPicker(ed.source, uid => {
                 ed.source = uid;
                 this.render();
             }));
@@ -460,11 +733,11 @@ export class CalendarView {
                     info.add_child(b);
                 }
             }
-            this._editorBox.add_child(info);
+            bx.add_child(info);
         }
 
         const save = guard(() => {
-            if (!readTimes())
+            if (!applyTimes())
                 return;
             this._saveEvent(ed);
         }, 'event-save');
@@ -482,33 +755,53 @@ export class CalendarView {
                     ed.confirmDelete = true;
                     this.render();
                 }, 'Delete event'));
-                actions.add_child(iconTextButton('qb-target', 'To quest', 'qb-small', () => {
-                    const m = ed.start.getHours() * 60 + ed.start.getMinutes();
-                    this._store.addQuest(ed.summary || 'Event', 'q2', ed.allDay ? null
-                        : {date: dateKey(ed.start), start: m, duration: Math.max(15, Math.round((ed.end - ed.start) / 60000))});
-                    this._setStatus('ok', 'Added as a quest');
-                }));
+                if (!linked) {
+                    actions.add_child(iconTextButton('qb-target', 'Link as quest', 'qb-small', () => {
+                        // No copy in the calendar: the quest just points at this event.
+                        const q = this._store.addQuest(ed.summary || 'Event', 'q2', null, {
+                            gcal: {source: ed.source, uid: ed.uid, rid: ed.rid ?? ''},
+                            due: {date: dateKey(ed.start)},
+                            eventTime: ed.allDay ? null : {start: minsOf(ed.start), end: minsOf(ed.end)},
+                        });
+                        if (q)
+                            this._setStatus('ok', 'Linked — it is in your matrix now');
+                    }));
+                }
             }
         }
         actions.add_child(new St.Widget({x_expand: true}));
         if (this._status)
-            actions.add_child(label(this._status.text, this._status.kind === 'error' ? 'qb-status error' : 'qb-status',
-                {ellipsize: true}));
+            actions.add_child(label(this._status.text, this._status.kind === 'error' ? 'qb-status error' : 'qb-status', {ellipsize: true}));
         actions.add_child(textButton(ed.saving ? 'Saving…' : 'Save', 'qb-small qb-accent', save));
-        this._editorBox.add_child(actions);
+        bx.add_child(actions);
         if (ed.loadError)
-            this._editorBox.add_child(label(ed.loadError, 'qb-status error', {wrap: true}));
+            bx.add_child(label(ed.loadError, 'qb-status error', {wrap: true}));
     }
 
     _calPicker(currentUid, onPick) {
-        const cals = this._writableCals();
         const row = box({style_class: 'qb-actions-row'});
+        if (this._eds?.unavailable) {
+            row.add_child(label(`Google editing needs: ${this._eds.unavailable.hint}`, 'qb-muted', {wrap: true, x_expand: true}));
+            return row;
+        }
+        const cals = this._writableCals();
         if (!cals.length) {
-            row.add_child(label(this._eds?.unavailable ? this._eds.unavailable.hint : 'No writable calendar found', 'qb-muted', {wrap: true}));
+            const why = this._calError ? `Couldn't load your calendars: ${this._calError}` : 'Loading calendars…';
+            row.add_child(label(why, this._calError ? 'qb-status error' : 'qb-muted', {wrap: true, x_expand: true}));
+            row.add_child(textButton('Retry', 'qb-small', () => {
+                this._calError = null;
+                this._loadCalendars(true);
+                this.render();
+            }));
             return row;
         }
         const idx = Math.max(0, cals.findIndex(c => c.uid === currentUid));
         const cal = cals[idx];
+        if (currentUid !== cal.uid)
+            GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+                onPick(cal.uid);
+                return GLib.SOURCE_REMOVE;
+            });
         const inner = box({});
         const dot = new St.Widget({style_class: 'qb-dot', y_align: Clutter.ActorAlign.CENTER});
         if (cal.color)
@@ -519,36 +812,16 @@ export class CalendarView {
             inner.add_child(icon('pan-down-symbolic'));
         row.add_child(button({style_class: 'qb-btn qb-small qb-link', child: inner, x_expand: true},
             () => onPick(cals[(idx + 1) % cals.length].uid), 'cal-pick'));
-        if (currentUid !== cal.uid)
-            onPick && GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
-                onPick(cal.uid);
-                return GLib.SOURCE_REMOVE;
-            });
         return row;
-    }
-
-    _closeEditor() {
-        this._editor = null;
-        this._status = null;
-        this.render();
-    }
-
-    _setStatus(kind, text) {
-        this._status = {kind, text};
-        this.render();
     }
 
     async _saveEvent(ed) {
         if (!this._eds)
             return;
-        if (!ed.source) {
-            this._setStatus('error', 'Pick a calendar first');
-            return;
-        }
-        if (!(ed.summary ?? '').trim()) {
-            this._setStatus('error', 'Give it a title');
-            return;
-        }
+        if (!ed.source)
+            return this._setStatus('error', 'Pick a calendar first');
+        if (!(ed.summary ?? '').trim())
+            return this._setStatus('error', 'Give it a title');
         ed.saving = true;
         this.render();
         const args = {
@@ -563,18 +836,20 @@ export class CalendarView {
             } else {
                 await this._eds.call({cmd: 'update', uid: ed.uid, rid: ed.rid, scope: ed.scope, ...args});
                 this._log.info('calendar', 'event updated');
+                const linked = this._linkedQuest(ed.source, ed.uid, ed.rid);
+                if (linked && linked.title !== args.summary)
+                    this._store.updateQuest(linked.id, {title: args.summary});
             }
             this._settings.set_string('default-calendar', ed.source);
-            if (this._editor === ed)
-                this._editor = null;
+            this._editor = null;
             this._status = null;
+            this._sel.hide();
             this._requestRange(true);
             this.render();
-            this._ctx.notifyQuiet?.('Saved to calendar');
         } catch (e) {
             ed.saving = false;
-            if (!this._editor && ed.mode === 'new')
-                this._editor = ed; // quick-add failed: reopen editor with the draft
+            if (!this._editor)
+                this._editor = ed;
             this._log.warn('calendar', `save failed: ${e.message}`);
             this._setStatus('error', e.message.slice(0, 120));
         }
@@ -584,6 +859,9 @@ export class CalendarView {
         try {
             await this._eds.call({cmd: 'delete', source: ed.source, uid: ed.uid, rid: ed.rid, scope: ed.scope});
             this._log.info('calendar', 'event deleted');
+            const linked = this._linkedQuest(ed.source, ed.uid, ed.rid);
+            if (linked)
+                this._store.updateQuest(linked.id, {gcal: null});
             this._editor = null;
             this._status = null;
             this._requestRange(true);
@@ -622,24 +900,30 @@ export class CalendarView {
         const end = addDays(begin, 1);
         const allDay = [];
         const timed = [];
+        const shownLinks = new Set();
         const events = this._source ? this._source.getEvents(begin, end) : [];
         for (const ev of events) {
-            const color = this._eds?.colorFor(parseEventId(ev.id).source);
+            const {source, uid, rid} = parseEventId(ev.id);
+            const color = this._eds?.colorFor(source);
+            const quest = this._linkedQuest(source, uid, rid);
+            if (quest)
+                shownLinks.add(quest.id);
+            const base = {kind: 'event', id: ev.id, title: ev.summary, date: ev.date, evEnd: ev.end, color, quest};
             if (ev.date <= begin && ev.end >= end) {
-                allDay.push({kind: 'event', title: ev.summary, id: ev.id, date: ev.date, evEnd: ev.end, allDay: true, color});
+                allDay.push({...base, allDay: true});
                 continue;
             }
             const s = Math.max(ev.date.getTime(), begin.getTime());
             const e = Math.min(ev.end.getTime(), end.getTime());
             const start = (s - begin.getTime()) / 60000;
             const stop = (e - begin.getTime()) / 60000;
-            timed.push({kind: 'event', id: ev.id, title: ev.summary, date: ev.date, evEnd: ev.end, allDay: false, color,
-                start, end: Math.max(start + 15, stop), label: `${fmtMinutes(start)} – ${fmtMinutes(stop)}`});
+            timed.push({...base, allDay: false, start, end: Math.max(start + 15, stop),
+                label: `${fmtMinutes(start)} – ${fmtMinutes(stop)}`});
         }
         const key = dateKey(begin);
         for (const q of this._store.quests) {
-            if (q.scheduled?.date !== key)
-                continue;
+            if (q.scheduled?.date !== key || shownLinks.has(q.id))
+                continue; // linked quests are shown on their event
             const start = q.scheduled.start;
             const dur = q.scheduled.duration ?? 60;
             timed.push({kind: 'quest', id: q.id, title: q.title, quadrant: q.quadrant, done: q.done,
@@ -667,11 +951,13 @@ export class CalendarView {
             this._todayBtn.add_style_pseudo_class('checked');
         else
             this._todayBtn.remove_style_pseudo_class('checked');
+        const items = this._itemsFor(this._viewDate);
         this._renderWeek(today);
-        this._renderAllDay();
-        this._renderQuick();
+        this._renderAllDay(items.allDay);
+        this._renderHint();
         this._renderEditor();
-        this._renderTimeline();
+        this._renderBlocks(items.timed);
+        this._renderNow(today);
         this._renderFooter();
     }
 
@@ -693,20 +979,23 @@ export class CalendarView {
         }
     }
 
-    _renderAllDay() {
+    _renderAllDay(allDay) {
         clearChildren(this._allDay);
-        const {allDay} = this._itemsFor(this._viewDate);
-        const due = this._store.dueOn(dateKey(this._viewDate));
+        const due = this._store.dueOn(dateKey(this._viewDate)).filter(q => !q.gcal);
         this._allDay.visible = allDay.length + due.length > 0;
         for (const q of due) {
             const inner = box({style_class: 'qb-due-chip-inner'});
             inner.add_child(icon('qb-target'));
             inner.add_child(label(`Due: ${q.title}`, '', {ellipsize: true, x_expand: true}));
             this._allDay.add_child(button({style_class: `qb-allday-item qb-due-chip qb-${q.quadrant}`, child: inner, x_expand: true},
-                () => this._onQuestClick(q.id), 'due-chip'));
+                () => this._ctx.onQuestClick(q.id), 'due-chip'));
         }
         for (const ev of allDay) {
-            const b = button({style_class: 'qb-allday-item', child: label(ev.title, '', {ellipsize: true}), x_expand: true},
+            const inner = box({style_class: 'qb-due-chip-inner'});
+            if (ev.quest)
+                inner.add_child(icon(ev.quest.done ? 'qb-check' : 'qb-target'));
+            inner.add_child(label(ev.title, '', {ellipsize: true, x_expand: true}));
+            const b = button({style_class: ev.quest?.done ? 'qb-allday-item done' : 'qb-allday-item', child: inner, x_expand: true},
                 () => this._openEvent(ev), 'allday');
             const bg = hexToRgba(ev.color, 0.45);
             if (bg)
@@ -715,60 +1004,35 @@ export class CalendarView {
         }
     }
 
-    _renderTimeline() {
-        const tl = this._timeline;
-        clearChildren(tl);
-        this._nowLine = null;
-        const width = this._tlWidth;
-        const area = width - GUTTER - 2;
-
-        for (let h = 0; h < 24; h++) {
-            const y = h * HOUR_H;
-            const line = new St.Widget({style_class: 'qb-hour-line'});
-            line.set_position(GUTTER - 4, y);
-            line.set_size(width - GUTTER + 4, 1);
-            tl.add_child(line);
-            const lbl = label(fmtHour(h), 'qb-hour-label');
-            lbl.set_position(0, Math.max(0, y - 7));
-            lbl.set_width(GUTTER - 8);
-            tl.add_child(lbl);
-        }
-
-        // One reactive layer for empty-slot clicks instead of 48 buttons.
-        const hit = new St.Widget({reactive: true, style_class: 'qb-slot-layer'});
-        hit.set_position(GUTTER, 0);
-        hit.set_size(area, 24 * HOUR_H);
-        hit.connect('button-release-event', guard((_a, ev) => {
-            const [, y] = hit.transform_stage_point(...ev.get_coords());
-            const slot = Math.max(0, Math.min(47, Math.floor(y / (HOUR_H / 2)))) * 30;
-            this._selectSlot(this._selSlot === slot ? null : slot);
-            return Clutter.EVENT_STOP;
-        }, 'slot'));
-        tl.add_child(hit);
-        if (this._selSlot !== null) {
-            const sel = new St.Widget({style_class: 'qb-slot selected'});
-            sel.set_position(GUTTER, this._selSlot * HOUR_H / 60);
-            sel.set_size(area, HOUR_H / 2);
-            tl.add_child(sel);
-        }
-
-        const {timed} = this._itemsFor(this._viewDate);
+    /** Rebuild only when the visible blocks actually changed. */
+    _renderBlocks(timed) {
+        const sig = `${dateKey(this._viewDate)}|${this._tlWidth}|` + timed.map(t =>
+            `${t.kind}:${t.id}:${t.start}:${t.end}:${t.title}:${t.done ? 1 : 0}:${t.quest ? (t.quest.done ? 'qd' : 'q') : ''}:${t.color ?? ''}`).join(';');
+        if (sig === this._blocksSig)
+            return;
+        this._blocksSig = sig;
+        clearChildren(this._blocks);
+        const area = this._tlWidth - GUTTER - 2;
         for (const it of layoutColumns(timed)) {
             const colW = area / it.ncols;
             const x = GUTTER + it.col * colW + 1;
             const y = it.start * HOUR_H / 60;
             const h = Math.max(18, (it.end - it.start) * HOUR_H / 60 - 2);
-
             const content = box({vertical: true, x_expand: true});
-            content.add_child(label(it.title, 'qb-block-title', {ellipsize: true}));
+            const top = box({});
+            if (it.quest)
+                top.add_child(icon(it.quest.done ? 'qb-check' : 'qb-target', 'qb-icon qb-block-icon'));
+            top.add_child(label(it.title, 'qb-block-title', {ellipsize: true, x_expand: true}));
+            content.add_child(top);
             if (h >= 34)
                 content.add_child(label(it.label, 'qb-block-time', {ellipsize: true}));
-
             let cls = it.kind === 'event' ? 'qb-block qb-event' : `qb-block qb-qblock qb-${it.quadrant}`;
-            if (it.done)
+            if (it.done || it.quest?.done)
                 cls += ' done';
+            if (it.quest)
+                cls += ' linked';
             const btn = button({style_class: cls, child: content, x_align: Clutter.ActorAlign.FILL, y_align: Clutter.ActorAlign.FILL},
-                () => (it.kind === 'quest' ? this._onQuestClick(it.id) : this._openEvent(it)), 'block');
+                () => (it.kind === 'quest' ? this.scheduleQuest(it.id) : this._openEvent(it)), 'block');
             if (it.kind === 'event') {
                 const bg = hexToRgba(it.color, 0.5);
                 const border = it.color && /^#/.test(it.color) ? it.color.slice(0, 7) : null;
@@ -777,17 +1041,19 @@ export class CalendarView {
             }
             btn.set_position(Math.round(x), Math.round(y) + 1);
             btn.set_size(Math.max(20, Math.round(colW - 3)), Math.round(h));
-            tl.add_child(btn);
+            this._blocks.add_child(btn);
         }
+    }
 
-        const now = new Date();
-        if (sameDay(now, this._viewDate)) {
-            const line = new St.Widget({style_class: 'qb-now-line'});
-            line.set_position(GUTTER - 6, Math.round((now.getHours() * 60 + now.getMinutes()) * HOUR_H / 60));
-            line.set_size(width - GUTTER + 6, 2);
-            tl.add_child(line);
-            this._nowLine = line;
+    _renderNow(today) {
+        const show = sameDay(today, this._viewDate);
+        this._nowLine.visible = show;
+        if (show) {
+            this._nowLine.set_position(GUTTER - 6, Math.round(minsOf(today) * HOUR_H / 60));
+            this._nowLine.set_size(this._tlWidth - GUTTER + 6, 2);
         }
+        if (!this._editor && !this._pick)
+            this._sel.hide();
     }
 
     _renderFooter() {
@@ -797,7 +1063,8 @@ export class CalendarView {
             const n = this._writableCals().length;
             const txt = src.isLoading ? 'Syncing calendars…'
                 : this._eds?.unavailable ? 'Read-only · install gir1.2-ecal-2.0 to edit'
-                    : `Google via Online Accounts${n ? ` · ${n} editable` : ''}`;
+                    : this._calError ? 'Calendar list failed — open an event for details'
+                        : `Google via Online Accounts${n ? ` · ${n} editable` : ''} · click start, then end`;
             this._footer.add_child(label(txt, 'qb-muted', {x_expand: true, ellipsize: true}));
         } else {
             this._footer.add_child(label('No calendar linked', 'qb-muted', {x_expand: true, ellipsize: true}));
