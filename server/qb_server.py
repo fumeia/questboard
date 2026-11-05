@@ -14,7 +14,7 @@ Single-user, zero dependencies (Python stdlib + SQLite).
   GET  /api/health
   GET  /                               tiny web console (live logs + devices)
 
-Auth: `Authorization: Bearer $QB_TOKEN` (or ?token= for browser downloads).
+Auth: `Authorization: Bearer $QB_TOKEN` (header only).
 """
 
 import hashlib
@@ -37,7 +37,15 @@ MAX_LOG_ROWS = int(os.environ.get("QB_MAX_LOG_ROWS", "100000"))
 COLLECTIONS = {"quests", "habits", "checkins", "rewards", "ledger", "sessions", "prefs"}
 PLATFORMS = {"extension", "android"}
 ID_RE = re.compile(r"^[A-Za-z0-9_\-:.]{1,80}$")
-MAX_BODY = 300 * 1024 * 1024
+MAX_BODY = 300 * 1024 * 1024       # release uploads (authenticated only)
+MAX_JSON_BODY = 5 * 1024 * 1024    # sync / logs
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+                               "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+}
 PULL_LIMIT = 5000
 LEVELS = ["debug", "info", "warn", "error"]
 
@@ -287,15 +295,18 @@ if($('dev').value)p.set('device',$('dev').value);if($('q').value)p.set('q',$('q'
 const r=await fetch('/api/logs?'+p,{headers:h()});if(!r.ok)return;const j=await r.json();
 const atBottom=innerHeight+scrollY>=document.body.scrollHeight-40;
 for(const l of j.logs){after=Math.max(after,l.id);const e=document.createElement('div');e.className='l '+l.level;
-e.innerHTML=`<span class=t>${new Date(l.ts).toLocaleTimeString()}</span> <span class=d>${l.platform}/${(l.device||'').slice(0,8)}</span> ${l.level.toUpperCase()} [${l.tag}] `;
-e.append(l.msg+(l.ctx&&l.ctx!=='null'?' '+l.ctx:''));$('logs').append(e)}
+const t=document.createElement('span');t.className='t';t.textContent=new Date(l.ts).toLocaleTimeString();
+const d=document.createElement('span');d.className='d';d.textContent=`${l.platform}/${(l.device||'').slice(0,8)}`;
+e.append(t,' ',d,` ${String(l.level).toUpperCase()} [${l.tag}] ${l.msg}${l.ctx&&l.ctx!=='null'?' '+l.ctx:''}`);$('logs').append(e)}
 if(atBottom&&j.logs.length)scrollTo(0,document.body.scrollHeight)}
 reset();setInterval(poll,2000);setInterval(devs,10000);
 </script></body></html>"""
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "Questboard/2"
+    server_version = "Questboard"
+    sys_version = ""
+    timeout = 60  # slow clients can't hold threads forever
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt, *args):
@@ -306,9 +317,13 @@ class Handler(BaseHTTPRequestHandler):
         return self.headers.get("X-Forwarded-For", self.client_address[0]).split(",")[0].strip()
 
     def _authed(self, q):
+        # Header only: tokens in URLs leak into proxy logs and browser history.
         hdr = self.headers.get("Authorization", "")
-        tok = hdr[7:] if hdr.startswith("Bearer ") else q.get("token", [""])[0]
-        return bool(TOKEN) and secrets.compare_digest(tok.encode(), TOKEN.encode())
+        tok = hdr[7:] if hdr.startswith("Bearer ") else ""
+        ok = bool(TOKEN) and secrets.compare_digest(tok.encode(), TOKEN.encode())
+        if not ok:
+            time.sleep(0.5)  # brake on guessing
+        return ok
 
     def _send(self, code, obj=None, ctype="application/json", raw=None):
         body = raw if raw is not None else json.dumps(obj).encode()
@@ -316,12 +331,17 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        for k, v in SECURITY_HEADERS.items():
+            self.send_header(k, v)
+        if code >= 400:
+            self.send_header("Connection", "close")
+            self.close_connection = True
         self.end_headers()
         self.wfile.write(body)
 
-    def _body(self):
+    def _body(self, limit=MAX_BODY):
         n = int(self.headers.get("Content-Length") or 0)
-        if n > MAX_BODY:
+        if n < 0 or n > limit:
             raise ValueError("body too large")
         buf = bytearray()
         while len(buf) < n:
@@ -332,7 +352,10 @@ class Handler(BaseHTTPRequestHandler):
         return bytes(buf)
 
     def _json(self):
-        return json.loads(self._body().decode() or "{}")
+        obj = json.loads(self._body(MAX_JSON_BODY).decode() or "{}")
+        if not isinstance(obj, dict):
+            raise ValueError("expected a JSON object")
+        return obj
 
     def do_GET(self):
         u = urlparse(self.path)
@@ -371,8 +394,7 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(u.query)
         p = u.path.rstrip("/")
         if not self._authed(q):
-            self._body()
-            return self._send(401, {"error": "unauthorized"})
+            return self._send(401, {"error": "unauthorized"})  # body never read; connection closed
         try:
             if p == "/api/sync":
                 return self._send(200, do_sync(self._json(), self._client_ip()))
