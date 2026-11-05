@@ -32,6 +32,8 @@ val COLLECTIONS = listOf("quests", "habits", "checkins", "rewards", "ledger", "s
 val PICKABLE_ICONS = listOf("star", "heart", "book", "dumbbell", "drop", "moon", "music", "game", "film", "pizza",
     "leaf", "bolt", "coffee", "gift", "target", "trophy", "sparkle", "flame", "shield", "repeat")
 const val POMODORO_XP = 10
+const val STEP_XP = 10
+fun groupBonus(q: JSONObject) = maxOf(10, Math.round(questXp(q) * 0.5).toInt())
 private const val DAY_MS = 86_400_000L
 private const val TOMBSTONE_TTL = 60 * DAY_MS
 
@@ -341,12 +343,69 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         val now = System.currentTimeMillis()
         if (done) {
             for (t in timers) if (t.questId == id && t.startedAt != null) credit(t, now)
-            patch("quests", id, mapOf("done" to true, "doneAt" to now))
-            put("ledger", jobj("id" to "quest.$id", "at" to now, "amount" to questXp(q), "kind" to "quest", "ref" to id, "note" to q.str("title")))
+            val steps = q.optJSONArray("steps") ?: JSONArray()
+            val newSteps = JSONArray()
+            for (i in 0 until steps.length()) {
+                val st = steps.getJSONObject(i).copy()
+                if (!st.bool("done")) {
+                    st.put("done", true)
+                    put("ledger", jobj("id" to "step.$id.${st.str("id")}", "at" to now, "amount" to STEP_XP, "kind" to "step", "ref" to id, "note" to st.str("title")))
+                }
+                newSteps.put(st)
+            }
+            val fields = mutableMapOf<String, Any?>("done" to true, "doneAt" to now)
+            if (steps.length() > 0) fields["steps"] = newSteps
+            patch("quests", id, fields)
+            val bonus = if (steps.length() > 0) groupBonus(q) else 0
+            put("ledger", jobj("id" to "quest.$id", "at" to now, "amount" to questXp(q) + bonus, "kind" to "quest", "ref" to id,
+                "note" to if (bonus > 0) "${q.str("title")} (+$bonus group bonus)" else q.str("title")))
         } else {
             patch("quests", id, mapOf("done" to false, "doneAt" to null))
             del("ledger", "quest.$id")
         }
+        changed()
+    }
+
+    // ---- steps (a quest with steps is a "group") ----------------------------
+
+    fun steps(q: JSONObject): List<JSONObject> = q.optJSONArray("steps")?.let { a -> (0 until a.length()).map { a.getJSONObject(it) } } ?: emptyList()
+
+    fun addStep(questId: String, title: String) {
+        val q = getQuest(questId) ?: return
+        val t = title.trim()
+        if (t.isEmpty()) return
+        val arr = JSONArray(steps(q).map { it.copy() } + jobj("id" to uid(), "title" to t, "done" to false))
+        val f = mutableMapOf<String, Any?>("steps" to arr)
+        if (q.bool("done")) { f["done"] = false; f["doneAt"] = null; del("ledger", "quest.$questId") }
+        patch("quests", questId, f)
+        changed()
+    }
+
+    fun toggleStep(questId: String, stepId: String) {
+        val q = getQuest(questId) ?: return
+        val now = System.currentTimeMillis()
+        val list = steps(q).map { it.copy() }
+        val st = list.find { it.str("id") == stepId } ?: return
+        st.put("done", !st.bool("done"))
+        if (st.bool("done")) put("ledger", jobj("id" to "step.$questId.$stepId", "at" to now, "amount" to STEP_XP, "kind" to "step", "ref" to questId, "note" to st.str("title")))
+        else del("ledger", "step.$questId.$stepId")
+        val allDone = list.isNotEmpty() && list.all { it.bool("done") }
+        if (allDone && !q.bool("done")) {
+            patch("quests", questId, mapOf("steps" to JSONArray(list)))
+            changed()
+            setDone(questId, true)
+            return
+        }
+        if (!st.bool("done") && q.bool("done")) {
+            patch("quests", questId, mapOf("steps" to JSONArray(list), "done" to false, "doneAt" to null))
+            del("ledger", "quest.$questId")
+        } else patch("quests", questId, mapOf("steps" to JSONArray(list)))
+        changed()
+    }
+
+    fun deleteStep(questId: String, stepId: String) {
+        val q = getQuest(questId) ?: return
+        patch("quests", questId, mapOf("steps" to JSONArray(steps(q).filter { it.str("id") != stepId })))
         changed()
     }
 

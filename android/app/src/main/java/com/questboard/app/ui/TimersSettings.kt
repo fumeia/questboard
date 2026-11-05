@@ -60,8 +60,7 @@ fun TimersScreen(app: QuestboardApp, v: Int, now: Long) {
     val timers = remember(v) { s.timers.toList() }
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
-            FlowRow(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically) {
+            FlowRow(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Pill("Pomodoro ${app.settings.pomodoroMin}m", C.red.copy(alpha = 0.5f)) { s.startPomodoro(link, app.settings.pomodoroMin) }
                 Pill("Break ${app.settings.breakMin}m", C.accent.copy(alpha = 0.4f)) { s.startBreak(app.settings.breakMin) }
                 Pill("Stopwatch", C.card) { s.addTimer("stopwatch", "stopwatch", 0, link) }

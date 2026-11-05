@@ -222,8 +222,14 @@ def cmd_publish(a):
         name = str(code)
     else:
         code, name = android_version()
-        subprocess.run(["./gradlew", "--no-daemon", "assembleRelease"], cwd=ANDROID, env=gradle_env(), check=True)
         path = os.path.join(ANDROID, "app", "build", "outputs", "apk", "release", "app-release.apk")
+        if a.no_build:
+            if not os.path.exists(path):
+                sys.exit("No APK built yet. Build it first (or drop --no-build).")
+            print(f"uploading the existing APK ({os.path.getsize(path) // 1024} KiB, built "
+                  f"{time.strftime('%d.%m. %H:%M', time.localtime(os.path.getmtime(path)))})")
+        else:
+            subprocess.run(["./gradlew", "--no-daemon", "assembleRelease"], cwd=ANDROID, env=gradle_env(), check=True)
     data = open(path, "rb").read()
     q = urllib.parse.urlencode({"code": code, "name": name, "notes": a.m or ""})
     r = api("POST", f"/api/releases/{a.target}?{q}", raw=data, ctype="application/octet-stream", timeout=300)
@@ -277,6 +283,7 @@ def main():
     pu.add_argument("target", choices=["extension", "android"])
     pu.add_argument("-m", help="release notes")
     pu.add_argument("--bump", action="store_true", help="increment the version first")
+    pu.add_argument("--no-build", action="store_true", help="android: upload the already-built APK")
     pu.set_defaults(fn=cmd_publish)
     a = p.parse_args()
     a.fn(a)

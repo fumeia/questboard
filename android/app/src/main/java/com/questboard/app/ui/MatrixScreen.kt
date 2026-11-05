@@ -147,8 +147,7 @@ fun QuadrantChips(selected: String, onPick: (String) -> Unit) {
 @Composable
 fun DueChips(selected: String?, onPick: (String?) -> Unit) {
     val today = LocalDate.now()
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Muted("Due", size = 12)
         for ((label, d) in listOf("Today" to 0L, "Tomorrow" to 1L, "+1 week" to 7L)) {
             val key = dateKey(today.plusDays(d))
@@ -183,6 +182,7 @@ fun QuestSheet(app: QuestboardApp, id: String, v: Int, now: Long, onClose: () ->
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { saveText() }))
             }
             OutlinedTextField(notes, { notes = it }, placeholder = { Text("Notes") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+            StepsEditor(app, q)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 QbIcon("sparkle", C.gold, 14.dp); HSpace(4.dp); Muted("${questXp(q)} XP", size = 13)
                 HSpace(14.dp); QbIcon("stopwatch", C.muted, 14.dp); HSpace(4.dp)
@@ -214,6 +214,29 @@ fun QuestSheet(app: QuestboardApp, id: String, v: Int, now: Long, onClose: () ->
             }
             Spacer(Modifier.height(4.dp))
         }
+    }
+}
+
+/** Steps of a group: tick each (10 XP); all done = quest XP + 50 % bonus. */
+@Composable
+fun StepsEditor(app: QuestboardApp, q: org.json.JSONObject) {
+    val s = app.store
+    val id = q.str("id")
+    val steps = s.steps(q)
+    var newStep by remember(id) { mutableStateOf("") }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Muted(if (steps.isEmpty()) "Steps — split it up (each step 10 XP, finishing all: +${com.questboard.app.data.groupBonus(q)} bonus)"
+              else "Steps ${steps.count { it.optBoolean("done") }}/${steps.size} · finishing all: +${com.questboard.app.data.groupBonus(q)} bonus", size = 12)
+        for (st in steps) Row(verticalAlignment = Alignment.CenterVertically) {
+            Check(st.optBoolean("done")) { s.toggleStep(id, st.str("id")) }
+            HSpace(8.dp)
+            Text(st.str("title"), fontSize = 14.sp, color = if (st.optBoolean("done")) C.muted else C.text, modifier = Modifier.weight(1f))
+            IconBtn("close", { s.deleteStep(id, st.str("id")) }, C.muted, 14.dp)
+        }
+        OutlinedTextField(newStep, { newStep = it }, singleLine = true, placeholder = { Text("Add a step, e.g. Exercise 1") },
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { s.addStep(id, newStep); newStep = "" }))
     }
 }
 

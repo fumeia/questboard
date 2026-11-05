@@ -117,6 +117,12 @@ fun QuestRow(q: JSONObject, timeLabel: String, running: Boolean, onOpen: () -> U
         if (showDot) Dot(C.quad(q.str("quadrant")))
         Text(q.str("title"), color = if (done) C.muted else C.text, fontSize = 14.sp, maxLines = 2,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        val steps = q.optJSONArray("steps")
+        if (steps != null && steps.length() > 0) {
+            val d = (0 until steps.length()).count { steps.getJSONObject(it).optBoolean("done") }
+            Text("$d/${steps.length()}", fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                color = if (d == steps.length()) C.green else C.muted)
+        }
         if (q.str("source") == "notion") QbIcon("book", C.muted, 12.dp)
         val dd = if (done) null else dueInDays(q)
         if (dd != null) {

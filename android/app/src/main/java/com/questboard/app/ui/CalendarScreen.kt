@@ -190,8 +190,8 @@ fun CalendarScreen(app: QuestboardApp, v: Int, permVersion: Int) {
             }
         }
     }
-    newAt?.let { m -> NewAtDialog(app, cals, day, m, { newAt = null }) { reload++ } }
-    editEvent?.let { e -> EventDialog(app, cals, e, day, e.begin, e.end, { editEvent = null }) { reload++ } }
+    newAt?.let { m -> NewAtDialog(app, cals, day, m, onDone = { newAt = null }, onSaved = { reload++ }) }
+    editEvent?.let { e -> EventDialog(app, cals, e, day, e.begin, e.end, onDone = { editEvent = null }, onSaved = { reload++ }) }
     openQuest?.let { id -> QuestSheet(app, id, v, System.currentTimeMillis()) { openQuest = null } }
 }
 
