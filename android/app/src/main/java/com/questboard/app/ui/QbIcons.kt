@@ -39,6 +39,7 @@ val QB_ICONS: Map<String, Int> = mapOf(
     "chevron-right" to R.drawable.qb_chevron_right,
     "close" to R.drawable.qb_close,
     "reset" to R.drawable.qb_reset,
+    "sun" to R.drawable.qb_sun,
     "play" to R.drawable.qb_play,
     "pause" to R.drawable.qb_pause,
     "inbox" to R.drawable.qb_inbox,

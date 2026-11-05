@@ -3,6 +3,7 @@
 // Syncs with the Questboard server (see server/) and the Android app.
 
 import Clutter from 'gi://Clutter';
+import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import St from 'gi://St';
 
@@ -70,6 +71,8 @@ export default class QuestboardExtension extends Extension {
             closeMenu: () => menu.close(),
             openPrefs: () => this.openPreferences(),
             showClassic: () => this._setClassic(true),
+            toggleTheme: () => this._settings.set_string('theme', this._isDark() ? 'light' : 'dark'),
+            isDark: () => this._isDark(),
             notify: (t, b) => this._notify(t, b),
         });
         menu.box.add_child(this._dashboard.actor);
@@ -109,7 +112,16 @@ export default class QuestboardExtension extends Extension {
             s.connect('changed::server-url', () => this._sync.schedule(1000)),
             s.connect('changed::server-token', () => this._sync.schedule(1000)),
             s.connect('changed::sync-enabled', () => this._sync.schedule(500)),
+            s.connect('changed::theme', () => this._applyTheme()),
         ];
+        // "auto" follows GNOME's Appearance › Style (Default/Dark).
+        try {
+            this._ifaceSettings = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
+            this._ifaceId = this._ifaceSettings.connect('changed::color-scheme', () => this._applyTheme());
+        } catch {
+            this._ifaceSettings = null;
+        }
+        this._applyTheme();
 
         // Housekeeping every 30 s: quest reminders. Heartbeat every 30 min.
         this._houseN = 0;
@@ -136,6 +148,10 @@ export default class QuestboardExtension extends Extension {
                 GLib.source_remove(id);
         this._tickId = this._houseId = 0;
         this._settingsIds?.forEach(id => this._settings.disconnect(id));
+        if (this._ifaceId)
+            this._ifaceSettings.disconnect(this._ifaceId);
+        this._ifaceId = 0;
+        this._ifaceSettings = null;
         this._settingsIds = null;
         this._unsub?.();
         this._unsub = null;
@@ -146,6 +162,8 @@ export default class QuestboardExtension extends Extension {
         }
         this._dashboard?.destroy();
         this._dashboard = null;
+        this._dateMenu?.menu?.box?.remove_style_class_name('qb-dark');
+        this._dateMenu?.menu?.box?.remove_style_class_name('qb-light');
         for (const c of this._hidden ?? [])
             c.show();
         this._hidden = null;
@@ -194,10 +212,39 @@ export default class QuestboardExtension extends Extension {
     }
 
     _setClassic(classic) {
+        this._classic = classic;
         for (const c of this._hidden ?? [])
             c.visible = classic;
         if (this._dashboard)
             this._dashboard.actor.visible = !classic;
+        this._applyTheme();
+    }
+
+    // ---- light / dark ----------------------------------------------------
+
+    _isDark() {
+        const pref = this._settings?.get_string('theme') ?? 'auto';
+        if (pref !== 'auto')
+            return pref === 'dark';
+        try {
+            return this._ifaceSettings?.get_string('color-scheme') === 'prefer-dark';
+        } catch {
+            return false;
+        }
+    }
+
+    /** The theme class goes on the popup box itself so Questboard paints its own background
+     *  instead of inheriting the shell theme's. The classic notification view keeps the shell look. */
+    _applyTheme() {
+        const box = this._dateMenu?.menu?.box;
+        if (!box || !this._settings)
+            return;
+        box.remove_style_class_name('qb-dark');
+        box.remove_style_class_name('qb-light');
+        if (this._classic || !this._dashboard)
+            return;
+        box.add_style_class_name(this._isDark() ? 'qb-dark' : 'qb-light');
+        this._dashboard.onThemeChanged?.();
     }
 
     // ---- ticking ---------------------------------------------------------

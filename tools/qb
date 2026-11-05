@@ -162,6 +162,7 @@ def cmd_bump(a):
 def cmd_pack(a=None):
     v = ext_version()
     os.makedirs(os.path.join(ROOT, "dist"), exist_ok=True)
+    subprocess.run([sys.executable, os.path.join(ROOT, "tools", "gen_css.py")], check=True)
     subprocess.run(["glib-compile-schemas", os.path.join(EXT, "schemas")], check=True)
     out = os.path.join(ROOT, "dist", f"questboard-extension-{v}.zip")
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:

@@ -140,6 +140,9 @@ export class Dashboard {
         this._syncBtn = button({style_class: 'qb-icon-btn qb-flat qb-sync', child: this._syncIcon, y_align: Clutter.ActorAlign.CENTER,
             accessible_name: 'Sync now'}, () => this.ctx.sync?.syncNow('manual'), 'sync');
         h.add_child(this._syncBtn);
+        this._themeIcon = icon('qb-moon');
+        h.add_child(button({style_class: 'qb-icon-btn qb-flat', child: this._themeIcon, y_align: Clutter.ActorAlign.CENTER,
+            accessible_name: 'Light / dark'}, () => this.ctx.toggleTheme?.(), 'theme'));
         h.add_child(iconButton('qb-inbox', 'qb-flat', () => this.ctx.showClassic(), 'Notifications (classic view)'));
         h.add_child(iconButton('preferences-system-symbolic', 'qb-flat', () => {
             this.ctx.closeMenu();
@@ -172,6 +175,12 @@ export class Dashboard {
         } else {
             this._chip.hide();
         }
+    }
+
+    /** Called by the extension when light/dark switches. */
+    onThemeChanged() {
+        // show what a click will switch *to*
+        this._themeIcon.gicon = gicon(this.ctx.isDark?.() ? 'qb-sun' : 'qb-moon');
     }
 
     _renderSync() {
@@ -222,7 +231,8 @@ export class Dashboard {
         page.add_child(this.habitStrip.actor);
 
         const grid = new Clutter.GridLayout({column_homogeneous: true, row_homogeneous: true, column_spacing: 8, row_spacing: 8});
-        const w = new St.Widget({layout_manager: grid, x_expand: true, y_expand: true, style_class: 'qb-matrix'});
+        const w = new St.Widget({layout_manager: grid, x_expand: true, y_expand: true, style_class: 'qb-matrix',
+            natural_height: 200, clip_to_allocation: true});
         this._quads = {};
         QUADRANTS.forEach((q, i) => {
             const card = box({vertical: true, style_class: `qb-quad qb-${q.id}`, x_expand: true, y_expand: true});
@@ -236,7 +246,9 @@ export class Dashboard {
             card.add_child(head);
 
             const list = box({vertical: true, style_class: 'qb-quest-list'});
-            card.add_child(scroll(list, {y_expand: true}));
+            // small natural height: the list takes the space that's left and scrolls,
+            // instead of pushing the card (and its input) past the popup's bottom edge
+            card.add_child(scroll(list, {y_expand: true, natural_height: 24}));
             card.add_child(entry('Add quest…', '', (text, e) => {
                 if (this._store.addQuest(text, q.id))
                     e.set_text('');

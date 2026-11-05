@@ -47,6 +47,14 @@ export default class QuestboardPrefs extends ExtensionPreferences {
 
         // ---- General
         const general = new Adw.PreferencesPage({title: 'General', icon_name: 'preferences-system-symbolic'});
+        const look = new Adw.PreferencesGroup({title: 'Appearance'});
+        const themes = ['auto', 'light', 'dark'];
+        const themeRow = new Adw.ComboRow({title: 'Theme', subtitle: 'Auto follows Settings › Appearance (Default / Dark)',
+            model: Gtk.StringList.new(['Auto', 'Light', 'Dark'])});
+        themeRow.selected = Math.max(0, themes.indexOf(settings.get_string('theme')));
+        themeRow.connect('notify::selected', () => settings.set_string('theme', themes[themeRow.selected]));
+        look.add(themeRow);
+        general.add(look);
         const size = new Adw.PreferencesGroup({title: 'Popup size', description: '0 = same size as GNOME’s calendar popup (minimum 780 × 560)'});
         size.add(spin('Width', 'Pixels', 'popup-width', 0, 3000, 10));
         size.add(spin('Height', 'Pixels', 'popup-height', 0, 2000, 10));

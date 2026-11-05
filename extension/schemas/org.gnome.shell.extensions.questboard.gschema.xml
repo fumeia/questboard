@@ -3,6 +3,7 @@
   <schema id="org.gnome.shell.extensions.questboard" path="/org/gnome/shell/extensions/questboard/">
     <key name="popup-width" type="i"><default>0</default><summary>Popup width (0 = match stock popup)</summary></key>
     <key name="popup-height" type="i"><default>0</default><summary>Popup height (0 = match stock popup)</summary></key>
+    <key name="theme" type="s"><choices><choice value='auto'/><choice value='light'/><choice value='dark'/></choices><default>'auto'</default><summary>Questboard colours: auto (follow GNOME's dark-style setting), light or dark</summary></key>
     <key name="pomodoro-minutes" type="i"><default>25</default><summary>Pomodoro length in minutes</summary></key>
     <key name="break-minutes" type="i"><default>5</default><summary>Break length in minutes</summary></key>
     <key name="day-start-hour" type="i"><default>8</default><summary>Hour the timeline scrolls to for other days</summary></key>
