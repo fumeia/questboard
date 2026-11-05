@@ -15,9 +15,18 @@ HOST=${HOST:-${TARGET#*@}}
 cd "$(dirname "$0")/.."
 REPO=$PWD
 
-# Tailscale address (100.64.0.0/10) in QB_PUBLIC_URL → listen only there (private).
+# Behind a reverse proxy (https URL) → listen on localhost only; Caddy/nginx is the way in.
+# Tailscale address (100.64.0.0/10) → listen only there. Otherwise: public plain HTTP (warn).
 BIND=0.0.0.0
-if [[ "${QB_PUBLIC_URL:-}" =~ ^https?://(100\.[0-9]+\.[0-9]+\.[0-9]+) ]]; then
+COMPOSE_FILES="-f docker-compose.yml"
+if [ -n "${QB_DOCKER_NETWORK:-}" ]; then
+  COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.network.yml"
+  BIND=127.0.0.1
+  echo "==> Joining Docker network '$QB_DOCKER_NETWORK' (Caddyfile: reverse_proxy questboard:8787)"
+elif [[ "${QB_PUBLIC_URL:-}" == https://* ]]; then
+  BIND=127.0.0.1
+  echo "==> HTTPS proxy mode: the server listens on 127.0.0.1:$PORT only (Caddyfile: reverse_proxy 127.0.0.1:$PORT)"
+elif [[ "${QB_PUBLIC_URL:-}" =~ ^https?://(100\.[0-9]+\.[0-9]+\.[0-9]+) ]]; then
   BIND=${BASH_REMATCH[1]}
   echo "==> Tailscale address detected: the server will listen only on $BIND (not public)"
 elif [ -z "${QB_PUBLIC_URL:-}" ]; then
@@ -27,7 +36,8 @@ fi
 
 echo "==> 1/5 Copying server files to $TARGET:~/questboard-server"
 ssh "$TARGET" 'mkdir -p ~/questboard-server/data'
-scp -q server/qb_server.py server/notion_sync.py server/notion.json server/Dockerfile server/docker-compose.yml "$TARGET":questboard-server/
+scp -q server/qb_server.py server/notion_sync.py server/notion.json server/Dockerfile server/docker-compose.yml \
+    server/docker-compose.network.yml "$TARGET":questboard-server/
 
 echo "==> 2/5 Preparing .env (token is kept if one exists)"
 NEWTOKEN=$(python3 -c 'import secrets;print(secrets.token_urlsafe(24))')
@@ -39,14 +49,16 @@ grep -q '^QB_TOKEN=' .env || echo "QB_TOKEN=$NEWTOKEN" >> .env
 sed -i '/^QB_UID=/d;/^QB_GID=/d;/^QB_PORT_HOST=/d;/^QB_BIND=/d' .env
 echo "QB_UID=\$(id -u)" >> .env; echo "QB_GID=\$(id -g)" >> .env; echo "QB_PORT_HOST=$PORT" >> .env
 echo "QB_BIND=$BIND" >> .env
+sed -i '/^QB_DOCKER_NETWORK=/d' .env
+[ -n "${QB_DOCKER_NETWORK:-}" ] && echo "QB_DOCKER_NETWORK=${QB_DOCKER_NETWORK:-}" >> .env || true
 REMOTE
 TOKEN=$(ssh "$TARGET" "grep '^QB_TOKEN=' ~/questboard-server/.env | cut -d= -f2-")
 
 echo "==> 3/5 Starting the container (docker compose up -d --build)"
-if ! ssh "$TARGET" 'cd ~/questboard-server && (docker compose version >/dev/null 2>&1 && docker compose up -d --build || docker-compose up -d --build)'; then
+if ! ssh "$TARGET" "cd ~/questboard-server && (docker compose version >/dev/null 2>&1 && docker compose $COMPOSE_FILES up -d --build || docker-compose $COMPOSE_FILES up -d --build)"; then
   echo
   echo "!! Docker needs sudo on the server. Run this once ON THE SERVER, then re-run this script:"
-  echo "     cd ~/questboard-server && sudo docker compose up -d --build"
+  echo "     cd ~/questboard-server && sudo docker compose $COMPOSE_FILES up -d --build"
   exit 1
 fi
 
@@ -57,6 +69,17 @@ for i in $(seq 40); do
   if curl -sf "$URL/api/health" >/dev/null; then OK=1; break; fi
   sleep 1
 done
+if [ -z "${OK:-}" ] && [ "$BIND" = "127.0.0.1" ]; then
+  if ssh "$TARGET" "curl -sf http://127.0.0.1:$PORT/api/health >/dev/null || docker exec questboard wget -qO- http://127.0.0.1:8787/api/health >/dev/null"; then
+    echo "!! Questboard runs on the server, but $URL doesn't reach it yet."
+    echo "   Add this to your Caddyfile and reload Caddy, then re-run this script:"
+    echo
+    echo "   ${URL#https://} {"
+    if [ -n "${QB_DOCKER_NETWORK:-}" ]; then echo "       reverse_proxy questboard:8787"; else echo "       reverse_proxy 127.0.0.1:$PORT"; fi
+    echo "   }"
+    exit 1
+  fi
+fi
 if [ -z "${OK:-}" ]; then
   echo "!! The server doesn't answer from this laptop. On the server check:"
   echo "     docker logs questboard        (did it start?)"

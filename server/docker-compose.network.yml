@@ -1,0 +1,9 @@
+# Used by deploy-server.sh when Caddy runs in Docker: joins Caddy's network so
+# the Caddyfile can say `reverse_proxy questboard:8787`. Set QB_DOCKER_NETWORK.
+services:
+  questboard:
+    networks: [proxy]
+networks:
+  proxy:
+    external: true
+    name: ${QB_DOCKER_NETWORK}
