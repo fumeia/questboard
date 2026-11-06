@@ -7,6 +7,7 @@ opaquely. Every record: `{id, updatedAt (ms), deleted?: true, ...}`. Merge = **l
 | Collection | Fields | Notes |
 |---|---|---|
 | `quests` | title, quadrant `q1..q4`, done, doneAt, createdAt, notes, scheduled `{date, start (min), duration}`, due `{date, time?}`, xp?, quadrantManual?, source?, link?, kind?, topic?, goalId?, steps? `[{id, title, done, goalId?}]`, progress? `{done, total, text}` | Notion quests: id `notion.<pageid>`; Physics RPG: id `rpg.<course>`, source `physics-rpg` |
+| | | `gcal` `{source, uid, rid, android?}`: the quest IS that calendar event ("To quest" / "Link as quest"), shown on the event in quest colours, no second block; the phone sets `source: ""` and its event id in `android`, the desktop matches those by `uid` |
 | `goals` | title, notes, icon, targetDate?, done, doneAt, createdAt | long-term; quests link via `goalId`, single steps via `steps[].goalId` |
 | `habits` | title, icon, xp, target (1–7 per week), archived, createdAt | |
 | `checkins` | habitId, date | id = `<habitId>.<YYYY-MM-DD>` (deterministic → no duplicates) |

@@ -333,6 +333,25 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
     fun dueOn(key: String) = openQuests().filter { it.optJSONObject("due")?.str("date") == key }
     fun scheduledOn(key: String) = quests.filter { it.optJSONObject("scheduled")?.str("date") == key }
 
+    /**
+     * The quest that IS this calendar event (quest.gcal, same as the desktop's "Link as quest"): matched by the phone's
+     * event id or by the iCalendar UID (links made on the desktop). A recurring event links one occurrence: its due date.
+     */
+    fun linkedQuest(eventId: Long, uid: String, date: String, recurring: Boolean): JSONObject? = quests.firstOrNull { q ->
+        val g = q.optJSONObject("gcal") ?: return@firstOrNull false
+        val same = g.optLong("android", -1L) == eventId || (uid.isNotEmpty() && g.str("uid") == uid)
+        same && (!recurring || q.optJSONObject("due")?.str("date") == date)
+    }
+
+    /** "To quest": the event itself becomes the quest (no second block, no copy in the calendar). */
+    fun linkEventAsQuest(title: String, eventId: Long, uid: String, date: String, allDay: Boolean, startMin: Int, endMin: Int): JSONObject? {
+        val q = addQuest(title.ifBlank { "Event" }, "q2", null, jobj("date" to date)) ?: return null
+        updateQuest(q.str("id"), mapOf(
+            "gcal" to jobj("source" to "", "uid" to uid, "rid" to "", "android" to eventId),
+            "eventTime" to if (allDay) null else jobj("start" to startMin, "end" to endMin)))
+        return getQuest(q.str("id"))
+    }
+
     fun addQuest(title: String, quadrant: String = "q1", scheduled: JSONObject? = null, due: JSONObject? = null,
                  goalId: String? = null): JSONObject? {
         val t = title.trim()
