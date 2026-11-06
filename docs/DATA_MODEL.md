@@ -39,8 +39,8 @@ all in that course, rooms cleared, daily missions) and is linked once to the ope
 the phone, "Link as quest" on the desktop). The event is drawn in the quest's quadrant colour, no second block. The phone
 sets `source: ""` and its own event id in `android`; the desktop matches those by the iCalendar `uid`.
 
-**Lernplan calendar quests:** the phone turns every event of its calendar named "Lernplan" (past 120 days to 200 days
-ahead) into a quest `cal.<hash of uid|date>` with `source: "lernplan"`, `inMatrix: false` (not in lists or the matrix,
+**Lernplan calendar quests:** the phone turns every event of its calendar named "Lernplan" (from 2026-11-06 to 200 days
+ahead) into a quest `cal.<hash of uid|date>` (sessions from 2026-11-06 on: past ones aren't counted) with `source: "lernplan"`, `inMatrix: false` (not in lists or the matrix,
 only on its event and in its goal), `xp: 20`, and `goalId`/`goalAuto` from the title (hardcoded in
 `android/.../sys/Lernplan.kt`: "Astrophysi…" → goal with "Astro", "Quantenmechanik" → "QM", "Festkörperphysik" →
 "Festkörperphysik"). A goal you set by hand wins; a deleted one is not recreated; a vanished event removes its open quest.

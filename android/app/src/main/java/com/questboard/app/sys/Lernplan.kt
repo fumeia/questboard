@@ -18,7 +18,9 @@ object Lernplan {
     const val CALENDAR = "Lernplan"
     const val SOURCE = "lernplan"
     private const val XP = 20                 // per attended session (an exercise sheet is 40)
-    private const val PAST_DAYS = 120L        // the semester so far
+    // Sessions count from the day this started; earlier ones can't be ticked honestly any more (nobody remembers which).
+    // Later the window still starts here, so a session you skip stays in the goal as not attended.
+    private val START: LocalDate = LocalDate.of(2026, 11, 6)
     private const val AHEAD_DAYS = 200L       // up to the exams
 
     /** Event title word -> word the goal title must contain (hardcoded for now). */
@@ -45,7 +47,7 @@ object Lernplan {
         val cals = repo.calendars().filter { it.name.trim().equals(CALENDAR, ignoreCase = true) }.map { it.id }.toSet()
         if (cals.isEmpty()) return -1
         val zone = ZoneId.systemDefault()
-        val from = LocalDate.now().minusDays(PAST_DAYS); val to = LocalDate.now().plusDays(AHEAD_DAYS)
+        val from = START; val to = LocalDate.now().plusDays(AHEAD_DAYS)
         val events = repo.eventsBetween(from.atStartOfDay(zone).toInstant().toEpochMilli(), to.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(), cals)
         val goals = store.goals()
         val wanted = events.map { e ->

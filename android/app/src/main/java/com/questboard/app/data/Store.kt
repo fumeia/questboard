@@ -347,7 +347,8 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
 
     /**
      * Calendar quests (source "lernplan"): one per event occurrence of the Lernplan calendar, kept in step with it.
-     * [wanted] are complete records with fixed ids; only events in from..to (dates) are managed. Ticks and goal links
+     * [wanted] are complete records with fixed ids for the events in from..to (dates); open quests of this source up to `to`
+     * that are not wanted (before `from`, or the event is gone) are removed. Ticks and goal links
      * you changed yourself are kept; an event that disappeared removes its quest unless it was already done (XP stays).
      */
     @Synchronized
@@ -369,7 +370,8 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         }
         for (q in quests) {
             val d = q.optJSONObject("due")?.str("date").orEmpty()
-            if (q.str("source") == source && d in from..to && q.str("id") !in ids && !q.bool("done")) { del("quests", q.str("id")); n++ }
+            // also open ones from before `from` (made by 0.1.12, which looked back 120 days)
+            if (q.str("source") == source && d <= to && q.str("id") !in ids && !q.bool("done")) { del("quests", q.str("id")); n++ }
         }
         if (n > 0) changed()
         return n
