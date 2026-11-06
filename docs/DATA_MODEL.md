@@ -7,7 +7,6 @@ opaquely. Every record: `{id, updatedAt (ms), deleted?: true, ...}`. Merge = **l
 | Collection | Fields | Notes |
 |---|---|---|
 | `quests` | title, quadrant `q1..q4`, done, doneAt, createdAt, notes, scheduled `{date, start (min), duration}`, due `{date, time?}`, xp?, quadrantManual?, source?, link?, kind?, topic?, goalId?, steps? `[{id, title, done, goalId?}]`, progress? `{done, total, text}` | Notion quests: id `notion.<pageid>`; Physics RPG: id `rpg.<course>`, source `physics-rpg` |
-| | | `gcal` `{source, uid, rid, android?}`: the quest IS that calendar event ("To quest" / "Link as quest"), shown on the event in quest colours, no second block; the phone sets `source: ""` and its event id in `android`, the desktop matches those by `uid` |
 | `goals` | title, notes, icon, targetDate?, done, doneAt, createdAt | long-term; quests link via `goalId`, single steps via `steps[].goalId` |
 | `habits` | title, icon, xp, target (1–7 per week), archived, createdAt | |
 | `checkins` | habitId, date | id = `<habitId>.<YYYY-MM-DD>` (deterministic → no duplicates) |
@@ -35,3 +34,7 @@ ledger entries of kind `rpg`. The bridge only sets topic/source/link/notes on ex
 tick, schedule and title survive; a deleted quest is not recreated. Each quest carries `progress` (exercises passed of
 all in that course, rooms cleared, daily missions) and is linked once to the open goal whose title names the course
 (`goalAutoLinked: true` marks that, so unlinking it by hand is respected).
+
+**Calendar events as quests:** `quest.gcal` `{source, uid, rid, android?}` means the quest *is* that event ("To quest" on
+the phone, "Link as quest" on the desktop). The event is drawn in the quest's quadrant colour, no second block. The phone
+sets `source: ""` and its own event id in `android`; the desktop matches those by the iCalendar `uid`.
