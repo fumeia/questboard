@@ -319,12 +319,14 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
 
     val quests get() = all("quests")
     fun getQuest(id: String) = get("quests", id)
-    fun openQuests() = quests.filter { !it.bool("done") }.sortedBy { it.optLong("createdAt") }
+    /** Quests that belong in lists and the matrix; calendar quests (Lernplan) only live on their event and in their goal. */
+    fun inMatrix(q: JSONObject) = q.optBoolean("inMatrix", true)
+    fun openQuests() = quests.filter { !it.bool("done") && inMatrix(it) }.sortedBy { it.optLong("createdAt") }
 
     fun visibleQuests(quadrant: String): List<JSONObject> {
         val today = dateKey()
         val order = { q: JSONObject -> q.optJSONObject("due")?.str("date")?.ifEmpty { null } ?: "9999" }
-        val inQ = quests.filter { it.str("quadrant") == quadrant }
+        val inQ = quests.filter { it.str("quadrant") == quadrant && inMatrix(it) }
             .sortedWith(compareBy<JSONObject>({ order(it) }, { it.optLong("createdAt") }))
         return inQ.filter { !it.bool("done") } +
             inQ.filter { it.bool("done") && !it.isNull("doneAt") && dateKeyOf(it.optLong("doneAt")) == today }
@@ -341,6 +343,36 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         val g = q.optJSONObject("gcal") ?: return@firstOrNull false
         val same = g.optLong("android", -1L) == eventId || (uid.isNotEmpty() && g.str("uid") == uid)
         same && (!recurring || q.optJSONObject("due")?.str("date") == date)
+    }
+
+    /**
+     * Calendar quests (source "lernplan"): one per event occurrence of the Lernplan calendar, kept in step with it.
+     * [wanted] are complete records with fixed ids; only events in from..to (dates) are managed. Ticks and goal links
+     * you changed yourself are kept; an event that disappeared removes its quest unless it was already done (XP stays).
+     */
+    @Synchronized
+    fun syncCalendarQuests(source: String, wanted: List<JSONObject>, from: String, to: String): Int {
+        var n = 0
+        val ids = wanted.map { it.str("id") }.toSet()
+        for (w in wanted) {
+            val raw = colls.getValue("quests")[w.str("id")]
+            if (raw != null && raw.bool("deleted")) continue  // deleted by hand ("Not a quest"): stays deleted
+            val old = raw
+            // goalAuto = the goal this sync linked; if goalId differs, you re-linked it by hand and that wins
+            val keepGoal = old != null && old.str("goalId") != old.str("goalAuto")
+            val rec = (old?.copy() ?: JSONObject()).apply {
+                for (k in w.keys()) if (!(keepGoal && (k == "goalId" || k == "goalAuto"))) put(k, w.get(k))
+                if (old == null) { put("done", false); put("doneAt", JSONObject.NULL); put("createdAt", System.currentTimeMillis()); put("notes", "") }
+            }
+            if (old != null && rec.toString() == old.toString()) continue
+            put("quests", rec); n++
+        }
+        for (q in quests) {
+            val d = q.optJSONObject("due")?.str("date").orEmpty()
+            if (q.str("source") == source && d in from..to && q.str("id") !in ids && !q.bool("done")) { del("quests", q.str("id")); n++ }
+        }
+        if (n > 0) changed()
+        return n
     }
 
     /** "To quest": the event itself becomes the quest (no second block, no copy in the calendar). */
@@ -635,7 +667,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
     }
 
     fun clearCompleted() {
-        for (q in quests.filter { it.bool("done") }) {
+        for (q in quests.filter { it.bool("done") && inMatrix(it) }) {  // attended Lernplan sessions stay (goal numbers)
             for (t in timers) if (t.questId == q.str("id")) { t.questId = null; t.stepId = null }
             del("quests", q.str("id"))
         }

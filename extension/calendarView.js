@@ -295,13 +295,14 @@ export class CalendarView {
     }
 
     /** Quest linked to an event (or null). */
-    _linkedQuest(source, uid, rid) {
+    _linkedQuest(source, uid, rid, date = null) {
         const k = linkKey(source, uid, rid);
         const kAll = linkKey(source, uid, '');
         return this._store.quests.find(q => q.gcal && (linkKey(q.gcal.source, q.gcal.uid, q.gcal.rid) === k ||
             (!q.gcal.rid && linkKey(q.gcal.source, q.gcal.uid, '') === kAll) ||
             // made on the phone: no GNOME calendar source, only the event's iCalendar UID
-            (!q.gcal.source && q.gcal.uid && q.gcal.uid === uid))) ?? null;
+            // (a repeating event has one such quest per occurrence: its due date)
+            (!q.gcal.source && q.gcal.uid && q.gcal.uid === uid && (!date || !q.due?.date || q.due.date === dateKey(date))))) ?? null;
     }
 
     // ---- two-click selection ---------------------------------------------
@@ -907,7 +908,7 @@ export class CalendarView {
         for (const ev of events) {
             const {source, uid, rid} = parseEventId(ev.id);
             const color = this._eds?.colorFor(source);
-            const quest = this._linkedQuest(source, uid, rid);
+            const quest = this._linkedQuest(source, uid, rid, ev.date);
             if (quest)
                 shownLinks.add(quest.id);
             const base = {kind: 'event', id: ev.id, title: ev.summary, date: ev.date, evEnd: ev.end, color, quest};

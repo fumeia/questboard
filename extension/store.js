@@ -419,15 +419,20 @@ export class Store {
         return this.get('quests', id);
     }
 
+    /** Calendar quests (Lernplan, made by the phone) live only on their event and in their goal, not in lists or the matrix. */
+    inMatrix(q) {
+        return q.inMatrix !== false;
+    }
+
     openQuests() {
-        return this.quests.filter(q => !q.done).sort((a, b) => a.createdAt - b.createdAt);
+        return this.quests.filter(q => !q.done && this.inMatrix(q)).sort((a, b) => a.createdAt - b.createdAt);
     }
 
     visibleQuests(quadrant) {
         const today = dateKey();
         // due soonest first, then oldest
         const order = q => (q.due?.date ? new Date(`${q.due.date}T00:00`).getTime() : 8.64e15);
-        const inQ = this.quests.filter(q => q.quadrant === quadrant).sort((a, b) => order(a) - order(b) || a.createdAt - b.createdAt);
+        const inQ = this.quests.filter(q => q.quadrant === quadrant && this.inMatrix(q)).sort((a, b) => order(a) - order(b) || a.createdAt - b.createdAt);
         return [
             ...inQ.filter(q => !q.done),
             ...inQ.filter(q => q.done && q.doneAt && dateKey(new Date(q.doneAt)) === today),
@@ -436,7 +441,7 @@ export class Store {
 
     archivedCount() {
         const today = dateKey();
-        return this.quests.filter(q => q.done && (!q.doneAt || dateKey(new Date(q.doneAt)) !== today)).length;
+        return this.quests.filter(q => q.done && this.inMatrix(q) && (!q.doneAt || dateKey(new Date(q.doneAt)) !== today)).length;
     }
 
     addQuest(title, quadrant = 'q1', scheduled = null, extra = {}) {
@@ -805,7 +810,7 @@ export class Store {
     }
 
     clearCompleted() {
-        for (const q of this.quests.filter(x => x.done)) {
+        for (const q of this.quests.filter(x => x.done && this.inMatrix(x))) {  // attended Lernplan sessions stay (goal numbers)
             for (const t of this.data.timers)
                 if (t.questId === q.id)
                     t.questId = t.stepId = null;
