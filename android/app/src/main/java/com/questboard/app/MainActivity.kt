@@ -106,12 +106,21 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch { app.sync.syncNow("manual") }
     }
 
+    /** Lernplan calendar events -> calendar quests linked to the course goals (see sys/Lernplan.kt). */
+    private fun lernplan() {
+        runCatching { com.questboard.app.sys.Lernplan.sync(app.calendar, app.store) }
+            .onSuccess { if (it > 0) app.log.info("lernplan", "$it calendar quests updated") }
+            .onFailure { app.log.exception("lernplan", it) }
+    }
+
     override fun onResume() {
         super.onResume()
         lifecycleScope.launch {
             app.store.tick()
+            lernplan()
             app.alarms.refresh(app)
             app.sync.syncNow("open")
+            lernplan()  // again: goals may only just have arrived from the server
             if (app.settings.autoUpdate) app.updater.check(manual = false)
         }
     }

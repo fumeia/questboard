@@ -568,7 +568,14 @@ class GoalsSection {
 
         const {quests, steps} = this._store.goalItems(g.id);
         const list = box({vertical: true, style_class: 'qb-quest-list qb-goal-items'});
-        for (const q of quests)
+        // Lernplan sessions (lectures, tutorials): one summary line and today's sessions, not dozens of rows
+        const today = dateKey(new Date());
+        const cal = quests.filter(q => q.source === 'lernplan');
+        if (cal.length) {
+            const past = cal.filter(q => (q.due?.date ?? '') <= today).length;
+            list.add_child(label(`Lernplan: ${cal.filter(q => q.done).length} of ${past} sessions so far attended · ${cal.length} in total`, 'qb-muted'));
+        }
+        for (const q of quests.filter(x => x.source !== 'lernplan' || x.due?.date === today))
             list.add_child(this._dash._questRow(q, now, {showDot: true}));
         for (const {quest, step} of steps) {
             const row = box({style_class: step.done ? 'qb-step done' : 'qb-step'});

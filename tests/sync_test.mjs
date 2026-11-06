@@ -150,4 +150,13 @@ assert.equal(only.goalProgress(rg.id).total, 2); assert.equal(only.goalProgress(
     assert.equal(desk.getTimer(ex.id).durationMs, 6 * 60000, 'extend adds to the countdown');
     desk.removeTimer(ex.id);
 }
+// Lernplan calendar quests (made by the phone): not in lists or the matrix, but counted in their goal; "Clear completed" keeps them
+{ const g2 = desk.addGoal('5.5 in Astro');
+  desk.applyRemote([{c:'quests',r:{id:'cal.abc',updatedAt:Date.now()+50,title:'Astrophysik Vorlesung',quadrant:'q2',done:true,doneAt:1,createdAt:1,
+    source:'lernplan',inMatrix:false,goalId:g2.id,due:{date:'2026-11-01'},gcal:{source:'',uid:'u1',rid:'',android:5}}},
+    {c:'quests',r:{id:'cal.abd',updatedAt:Date.now()+50,title:'Astrophysik Übung',quadrant:'q2',done:false,createdAt:1,
+    source:'lernplan',inMatrix:false,goalId:g2.id,due:{date:'2099-01-01'},gcal:{source:'',uid:'u2',rid:'',android:6}}}], desk.cursor, {});
+  assert(!desk.openQuests().some(q => q.id.startsWith('cal.')) && !desk.visibleQuests('q2').some(q => q.id.startsWith('cal.')), 'not in the matrix');
+  assert.deepEqual([desk.goalProgress(g2.id).done, desk.goalProgress(g2.id).total], [1, 2], 'counted in the goal');
+  desk.clearCompleted(); assert(desk.getQuest('cal.abc'), 'attended session survives Clear completed'); }
 console.log('level', levelInfo(desk.xp), 'balance', desk.balance, '\nALL SYNC TESTS PASSED');

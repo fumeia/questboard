@@ -72,7 +72,15 @@ fun GoalCard(app: QuestboardApp, g: JSONObject, now: Long, open: Boolean, onTogg
         Bar(p.frac, if (done) C.gold else C.green, Modifier.fillMaxWidth())
         if (!open) return@Column
         val items = s.goalItems(id)
-        for (q in items.quests) Row(verticalAlignment = Alignment.CenterVertically) {
+        // Lernplan sessions (lectures, tutorials): one summary line and today's sessions, not dozens of rows
+        val cal = items.quests.filter { it.str("source") == "lernplan" }
+        if (cal.isNotEmpty()) {
+            val today = dateKey()
+            val went = cal.count { it.optBoolean("done") }
+            val past = cal.count { it.optJSONObject("due")?.str("date").orEmpty() <= today }
+            Muted("Lernplan: $went of $past sessions so far attended · ${cal.size} in total", size = 12)
+        }
+        for (q in items.quests.filter { it.str("source") != "lernplan" || it.optJSONObject("due")?.str("date") == dateKey() }) Row(verticalAlignment = Alignment.CenterVertically) {
             Check(q.optBoolean("done")) { s.setDone(q.str("id"), !q.optBoolean("done")) }
             HSpace(8.dp)
             Dot(C.quad(q.str("quadrant")))

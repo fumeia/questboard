@@ -284,6 +284,7 @@ class AlarmReceiver : BroadcastReceiver() {
 data class CalEvent(
     val id: Long, val calendarId: Long, val title: String, val begin: Long, val end: Long, val allDay: Boolean,
     val color: Int, val location: String, val description: String, val recurring: Boolean,
+    val uid: String = "",  // iCalendar UID: the same event on the desktop (GNOME) side
 )
 
 data class CalInfo(val id: Long, val name: String, val account: String, val color: Int, val writable: Boolean)
@@ -310,10 +311,14 @@ class CalendarRepo(private val ctx: Context) {
     }
 
     fun eventsOn(day: LocalDate): List<CalEvent> {
+        val zone = ZoneId.systemDefault()
+        return eventsBetween(day.atStartOfDay(zone).toInstant().toEpochMilli(), day.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli())
+    }
+
+    /** Event occurrences overlapping begin..end (ms), optionally only from some calendars. */
+    fun eventsBetween(begin: Long, end: Long, calendarIds: Set<Long>? = null): List<CalEvent> {
         if (!hasPermission()) return emptyList()
         val zone = ZoneId.systemDefault()
-        val begin = day.atStartOfDay(zone).toInstant().toEpochMilli()
-        val end = day.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
         val uri = CalendarContract.Instances.CONTENT_URI.buildUpon().also {
             ContentUris.appendId(it, begin); ContentUris.appendId(it, end)
         }.build()
@@ -323,9 +328,11 @@ class CalendarRepo(private val ctx: Context) {
             CalendarContract.Instances.BEGIN, CalendarContract.Instances.END, CalendarContract.Instances.ALL_DAY,
             CalendarContract.Instances.DISPLAY_COLOR, CalendarContract.Instances.EVENT_LOCATION,
             CalendarContract.Instances.DESCRIPTION, CalendarContract.Instances.RRULE, CalendarContract.Instances.VISIBLE,
+            CalendarContract.Instances.UID_2445,
         ), null, null, CalendarContract.Instances.BEGIN)?.use { c ->
             while (c.moveToNext()) {
                 if (c.getInt(10) == 0) continue
+                if (calendarIds != null && c.getLong(1) !in calendarIds) continue
                 var b = c.getLong(3)
                 var e = c.getLong(4)
                 val allDay = c.getInt(5) == 1
@@ -334,7 +341,7 @@ class CalendarRepo(private val ctx: Context) {
                     b = d.atStartOfDay(zone).toInstant().toEpochMilli(); e = b + 86_400_000
                 }
                 out += CalEvent(c.getLong(0), c.getLong(1), c.getString(2) ?: "(no title)", b, e, allDay, c.getInt(6),
-                    c.getString(7) ?: "", c.getString(8) ?: "", !c.getString(9).isNullOrEmpty())
+                    c.getString(7) ?: "", c.getString(8) ?: "", !c.getString(9).isNullOrEmpty(), c.getString(11) ?: "")
             }
         }
         return out

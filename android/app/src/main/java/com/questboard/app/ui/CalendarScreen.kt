@@ -65,7 +65,7 @@ private const val GUTTER_DP = 46
 
 private data class Block(val key: String, val title: String, val start: Int, val end: Int, val color: Color,
                          val event: CalEvent? = null, val questId: String? = null, val done: Boolean = false,
-                         val focus: Boolean = false, val live: Boolean = false) {
+                         val focus: Boolean = false, val live: Boolean = false, val linked: Boolean = false) {
     var col = 0
     var ncols = 1
 }
@@ -145,10 +145,14 @@ fun CalendarScreen(app: QuestboardApp, v: Int, permVersion: Int, now: Long = Sys
         }
         // all-day + deadlines
         val allDay = events.filter { it.allDay }
-        val due = remember(v, day) { app.store.dueOn(dateKey(day)) }
+        val due = remember(v, day) { app.store.dueOn(dateKey(day)).filter { it.optJSONObject("gcal") == null } }  // linked ones show on their event
         if (allDay.isNotEmpty() || due.isNotEmpty()) {
             FlowRow(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                for (e in allDay) Pill(e.title, Color(e.color).copy(alpha = 0.5f)) { editEvent = e }
+                for (e in allDay) {
+                    val lq = app.store.linkedQuest(e.id, e.uid, dateKey(day), e.recurring)
+                    if (lq == null) Pill(e.title, Color(e.color).copy(alpha = 0.5f)) { editEvent = e }
+                    else Pill((if (lq.optBoolean("done")) "✓ " else "") + e.title, C.quad(lq.str("quadrant")).copy(alpha = if (lq.optBoolean("done")) 0.2f else 0.55f)) { openQuest = lq.str("id") }
+                }
                 for (q in due) Pill("Due: ${q.str("title")}", C.quad(q.str("quadrant")).copy(alpha = 0.35f)) { openQuest = q.str("id") }
             }
         }
@@ -158,7 +162,10 @@ fun CalendarScreen(app: QuestboardApp, v: Int, permVersion: Int, now: Long = Sys
             for (e in events.filter { !it.allDay }) {
                 val s = ((maxOf(e.begin, dayStart) - dayStart) / 60000).toInt()
                 val en = ((minOf(e.end, dayStart + 86_400_000) - dayStart) / 60000).toInt()
-                list += Block("e${e.id}-${e.begin}", e.title, s, maxOf(s + 15, en), Color(e.color), event = e)
+                val lq = app.store.linkedQuest(e.id, e.uid, dateKey(day), e.recurring)  // converted with "To quest": coloured like a quest
+                list += if (lq == null) Block("e${e.id}-${e.begin}", e.title, s, maxOf(s + 15, en), Color(e.color), event = e)
+                else Block("e${e.id}-${e.begin}", e.title, s, maxOf(s + 15, en), C.quad(lq.str("quadrant")), event = e,
+                    questId = lq.str("id"), done = lq.optBoolean("done"), linked = true)
             }
             for (q in app.store.scheduledOn(dateKey(day))) {
                 val sc = q.optJSONObject("scheduled")!!
@@ -212,16 +219,20 @@ fun CalendarScreen(app: QuestboardApp, v: Int, permVersion: Int, now: Long = Sys
                         .clip(RoundedCornerShape(6.dp))
                         .background(b.color.copy(alpha = if (b.focus) (if (b.live) 0.4f else 0.22f) else if (b.done) 0.2f else 0.55f))
                         .let { if (b.focus) it.border(1.dp, b.color.copy(alpha = if (b.live) 0.9f else 0.5f), RoundedCornerShape(6.dp)) else it }
-                        .clickable {
-                            when {
-                                b.focus -> b.questId?.takeIf { app.store.getQuest(it) != null }?.let { openQuest = it }
-                                b.questId != null -> openQuest = b.questId
-                                else -> editEvent = b.event
-                            }
+                        .pointerInput(b.key, b.questId) {
+                            detectTapGestures(
+                                onLongPress = { if (b.event != null) editEvent = b.event },  // a converted event: hold to edit the event itself
+                                onTap = {
+                                    when {
+                                        b.focus -> b.questId?.takeIf { app.store.getQuest(it) != null }?.let { openQuest = it }
+                                        b.questId != null -> openQuest = b.questId
+                                        else -> editEvent = b.event
+                                    }
+                                })
                         }
                         .padding(horizontal = 6.dp, vertical = 2.dp)) {
-                        Text(b.title, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                            color = if (b.done) C.muted else C.text)
+                        Text((if (b.linked) (if (b.done) "✓ " else "◎ ") else "") + b.title, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis, color = if (b.done) C.muted else C.text)
                         if (b.end - b.start >= 40) Text("${fmtMin(b.start)} – ${fmtMin(b.end)}${if (b.live) " · running" else ""}", fontSize = 10.sp, color = C.muted)
                     }
                 }
@@ -355,12 +366,13 @@ private fun EventDialog(app: QuestboardApp, cals: List<CalInfo>, e: CalEvent?, d
                         runCatching { app.calendar.delete(e.id) }.onFailure { app.log.exception("calendar", it) }
                         onSaved(); onDone()
                     } else Pill("Delete", Color.Transparent, C.red) { confirmDelete = true }
-                    Pill("To quest", C.card) {
+                    val linked = app.store.linkedQuest(e.id, e.uid, dateKey(day), e.recurring)
+                    if (linked == null) Pill("To quest", C.card) {
+                        // the event itself becomes the quest: no second block, nothing new in the calendar
                         val m = minsOf(e.begin)
-                        app.store.addQuest(e.title, "q2", if (e.allDay) null else jobj("date" to dateKey(day), "start" to m,
-                            "duration" to ((e.end - e.begin) / 60000).toInt().coerceAtLeast(15)))
-                        onDone()
-                    }
+                        app.store.linkEventAsQuest(e.title, e.id, e.uid, dateKey(day), e.allDay, m, m + ((e.end - e.begin) / 60000).toInt())
+                        onSaved(); onDone()
+                    } else Pill("Not a quest", C.card) { app.store.deleteQuest(linked.str("id")); onSaved(); onDone() }  // back to a plain event (XP earned stays)
                     if (recurring) Pill("Open in Calendar", C.card) { app.calendar.openInCalendarApp(e.id) }
                 }
                 error?.let { Text(it, color = C.red, fontSize = 12.sp) }
