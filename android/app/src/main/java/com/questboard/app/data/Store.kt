@@ -136,6 +136,9 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
             val d = JSONObject(file.readText())
             deviceId = d.optString("deviceId", deviceId)
             cursor = d.optLong("cursor", 0)
+            // same rule as extension/store.js: data written by a version that knew fewer collections → pull everything once
+            val known = d.optJSONArray("knownColls")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()
+            if (!known.containsAll(COLLECTIONS)) cursor = 0
             seeded = d.optBoolean("seeded", false)
             goalsOnServer = d.optBoolean("goalsOnServer", false)
             d.optJSONObject("colls")?.let { c ->
@@ -157,7 +160,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
     fun save() {
         val c = JSONObject()
         for ((name, m) in colls) c.put(name, JSONObject().apply { for ((k, v) in m) put(k, v) })
-        val d = jobj("version" to 2, "deviceId" to deviceId, "cursor" to cursor, "seeded" to seeded, "goalsOnServer" to goalsOnServer, "colls" to c,
+        val d = jobj("version" to 2, "deviceId" to deviceId, "cursor" to cursor, "knownColls" to JSONArray(COLLECTIONS), "seeded" to seeded, "goalsOnServer" to goalsOnServer, "colls" to c,
             "dirty" to JSONObject(dirty as Map<*, *>), "timers" to JSONArray(timers.map { it.toJson() }),
             "reminded" to JSONObject(reminded as Map<*, *>))
         val tmp = File(file.parentFile, "data.json.tmp")

@@ -169,7 +169,7 @@ export function parseTime(text) {
 
 export function scroll(child, params = {}) {
     const sv = new St.ScrollView({
-        style_class: 'qb-scroll vfade',
+        style_class: 'qb-scroll', // no 'vfade': the shell's fade hid the first and last lines
         hscrollbar_policy: St.PolicyType.NEVER,
         vscrollbar_policy: St.PolicyType.AUTOMATIC,
         overlay_scrollbars: true,

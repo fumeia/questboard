@@ -159,4 +159,11 @@ assert.equal(only.goalProgress(rg.id).total, 2); assert.equal(only.goalProgress(
   assert(!desk.openQuests().some(q => q.id.startsWith('cal.')) && !desk.visibleQuests('q2').some(q => q.id.startsWith('cal.')), 'not in the matrix');
   assert.deepEqual([desk.goalProgress(g2.id).done, desk.goalProgress(g2.id).total], [1, 2], 'counted in the goal');
   desk.clearCompleted(); assert(desk.getQuest('cal.abc'), 'attended session survives Clear completed'); }
+// data from a version without goals: its cursor skipped them → this version pulls everything once (and only once)
+{ const fs = await import('fs'); const dir = process.env.T + '/oldext'; fs.mkdirSync(dir, {recursive: true});
+  process.env.QB_DIR = dir; const tmp = new Store(); const file = tmp._path; tmp.data.cursor = 999; delete tmp.data.knownColls;
+  fs.mkdirSync(file.replace(/\/data.json$/, ''), {recursive: true}); fs.writeFileSync(file, JSON.stringify(tmp.data));
+  const re = new Store(); assert.equal(re.cursor, 0, 'cursor reset for a full pull');
+  const gs = await sync(re); assert(re.goals().length >= 1, 'goals arrive');
+  fs.writeFileSync(file, JSON.stringify(re.data)); assert(new Store().cursor > 0, 'only once'); }
 console.log('level', levelInfo(desk.xp), 'balance', desk.balance, '\nALL SYNC TESTS PASSED');
