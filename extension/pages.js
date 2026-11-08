@@ -11,12 +11,17 @@ import {
 
 /** A row of icon choices; returns {actor, value}. */
 function iconPicker(current, onPick) {
-    const wrap = box({style_class: 'qb-icon-picker'});
-    for (const name of PICKABLE_ICONS) {
-        const b = button({style_class: name === current ? 'qb-pick-icon checked' : 'qb-pick-icon', child: icon(`qb-${name}`),
-            accessible_name: name}, () => onPick(name), 'icon-pick');
-        wrap.add_child(b);
-    }
+    // rows of 10: one long row made the left side wider than the popup and pushed the calendar out of the window
+    const wrap = box({vertical: true, style_class: 'qb-icon-picker'});
+    let row = null;
+    PICKABLE_ICONS.forEach((name, i) => {
+        if (i % 10 === 0) {
+            row = box({style_class: 'qb-icon-picker-row'});
+            wrap.add_child(row);
+        }
+        row.add_child(button({style_class: name === current ? 'qb-pick-icon checked' : 'qb-pick-icon', child: icon(`qb-${name}`),
+            accessible_name: name}, () => onPick(name), 'icon-pick'));
+    });
     return wrap;
 }
 
@@ -96,6 +101,11 @@ export class HabitsPage {
         this._newPicker = box({});
         add.add_child(this._newPicker);
         this.actor.add_child(add);
+    }
+
+    collapse() {
+        this._expanded = null;
+        this._showNewIcons = false;
     }
 
     render() {
@@ -220,6 +230,13 @@ export class ShopPage {
 
         this._list = box({vertical: true, style_class: 'qb-shop-list'});
         this.actor.add_child(scroll(this._list, {y_expand: true}));
+    }
+
+    /** Close editors when the popup closes or another page opens, so the shop always opens tidy. */
+    collapse() {
+        this._expanded = null;
+        this._showAdd = false;
+        this._confirm = null;
     }
 
     _renderAdd() {
@@ -349,6 +366,13 @@ export class ShopPage {
             }, 'Delete reward'));
             ed.add_child(r2);
             ed.add_child(iconPicker(r.icon, n => this._store.updateReward(r.id, {icon: n})));
+            const r3 = box({style_class: 'qb-actions-row'});
+            r3.add_child(new St.Widget({x_expand: true}));
+            r3.add_child(textButton('Done', 'qb-small qb-accent', () => {
+                this._expanded = null;
+                this.render();
+            }));
+            ed.add_child(r3);
             card.add_child(ed);
         }
         return card;

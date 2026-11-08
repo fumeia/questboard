@@ -101,8 +101,24 @@ export class Dashboard {
         this._log?.debug?.('perf', `popup ready in ${Date.now() - t0} ms`);
     }
 
+    /** Full rebuild of the matrix page and the calendar (fallback when opening failed). */
+    rebuild() {
+        this._open = true;
+        this._stale = true;
+        this.calendar.markStale();
+        this.calendar._open = true;
+        this._setPage('matrix');
+    }
+
+    showPage(page) {
+        if (this._pages[page])
+            this._setPage(page);
+    }
+
     onClose() {
         this._open = false;
+        this.shopPage?.collapse();
+        this.habitsPage?.collapse();
         this._pickerFor = null;
         this.calendar.onClose();
     }
@@ -224,6 +240,10 @@ export class Dashboard {
     }
 
     _setPage(page, doRender = true) {
+        if (page !== this._page) {
+            this.shopPage?.collapse();
+            this.habitsPage?.collapse();
+        }
         this._page = page;
         for (const [id, p] of Object.entries(this._pages))
             p.visible = id === page;
