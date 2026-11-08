@@ -84,7 +84,7 @@ export default class QuestboardExtension extends Extension {
                 if (open) {
                     this._setClassic(false);
                     this._applySize();
-                    this._dashboard.onOpen();
+                    this._openDashboard();
                     // network after the popup is drawn, so opening never waits for it
                     this._sync.schedule(1200);
                     this._updater.maybeCheck();
@@ -333,12 +333,48 @@ export default class QuestboardExtension extends Extension {
 
     // ---- panel badge -----------------------------------------------------
 
+    /**
+     * Never leave an empty popup open: an open popup holds the mouse and keyboard, so a failed render looked like a frozen
+     * screen until the next click elsewhere. Retry with a full rebuild, and if that fails too, close the popup.
+     */
+    _openDashboard() {
+        const menu = this._dateMenu.menu;
+        try {
+            this._dashboard.onOpen();
+        } catch (e) {
+            this._log.exception('open', e);
+            try {
+                this._dashboard.rebuild();
+            } catch (e2) {
+                this._log.exception('open-retry', e2);
+                menu.close();
+                return;
+            }
+        }
+        // clicked on the timer badge in the top bar → straight to the timers
+        if (Date.now() - (this._badgePressedAt ?? 0) < 1500) {
+            this._badgePressedAt = 0;
+            try {
+                this._dashboard.showPage('timers');
+            } catch (e) {
+                this._log.exception('open-timers', e);
+            }
+        }
+    }
+
     _buildPanelBadge() {
         const clock = this._dateMenu._clockDisplay;
         const parent = clock?.get_parent();
         if (!parent)
             return;
-        this._badge = new St.BoxLayout({style_class: 'qb-panel-badge', visible: false, y_align: Clutter.ActorAlign.CENTER});
+        this._badge = new St.BoxLayout({style_class: 'qb-panel-badge', visible: false, y_align: Clutter.ActorAlign.CENTER, reactive: true});
+        // Only note the press and let it through: the date button itself opens the popup (no grab of our own).
+        const mark = () => {
+            this._badgePressedAt = Date.now();
+            return Clutter.EVENT_PROPAGATE;
+        };
+        this._badge.connect('button-press-event', mark);
+        this._badge.connect('touch-event', mark);
         this._badge.add_child(new St.Icon({
             gicon: gicon('qb-stopwatch'),
             style_class: 'qb-panel-badge-icon',
