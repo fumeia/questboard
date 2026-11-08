@@ -129,7 +129,7 @@ export class CalendarView {
 
         const tlWrap = box({vertical: true});
         tlWrap.add_child(this._timeline);
-        this._scroll = scroll(tlWrap, {y_expand: true, style_class: 'qb-scroll qb-cal-scroll vfade'});
+        this._scroll = scroll(tlWrap, {y_expand: true, style_class: 'qb-scroll qb-cal-scroll'});
         this.actor.add_child(this._scroll);
         const adj = vadjustment(this._scroll);
         if (adj)

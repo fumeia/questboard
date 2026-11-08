@@ -353,3 +353,6 @@
 .qb-goal-fill.done { background-color: #f8e45c; }
 .qb-goal-items { padding: 2px 0; }
 .qb-step-goal { font-size: 0.75em; padding: 1px 6px; max-width: 110px; }
+
+/* no fading at the top and bottom of scrolling lists (it hid the first and last lines) */
+.qb-scroll { -st-vfade-offset: 0px; -st-hfade-offset: 0px; }
