@@ -87,6 +87,7 @@ const emptyData = () => ({
     version: 2,
     deviceId: `desk-${uid()}`,
     cursor: 0,
+    knownColls: [...COLLECTIONS], // collections this data's cursor covers (see _load)
     dirty: {}, // "coll/id" -> updatedAt that still needs pushing
     colls: emptyColls(),
     timers: [],
@@ -127,7 +128,7 @@ export class Store {
         if (!d.version || d.version < 2)
             return this._migrateV1(d);
         const base = emptyData();
-        return {
+        const out = {
             ...base,
             ...d,
             colls: {...emptyColls(), ...(d.colls ?? {})},
@@ -135,6 +136,14 @@ export class Store {
             dirty: d.dirty ?? {},
             reminded: d.reminded ?? {},
         };
+        // An older version skipped records of collections it did not know yet (goals) but still moved its sync cursor
+        // past them, so they would never come again. When this version knows more collections than the data was
+        // written with, pull everything once more. Only a pull: last writer wins per record, nothing is deleted.
+        if (COLLECTIONS.some(c => !(d.knownColls ?? []).includes(c))) {
+            out.cursor = 0;
+            out.knownColls = [...COLLECTIONS];
+        }
+        return out;
     }
 
     _migrateV1(old) {
