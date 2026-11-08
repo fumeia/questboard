@@ -1,0 +1,37 @@
+# Manual check of your Questboard server (Actions › Server check › Run workflow). Prints only counts, never your data.
+name: Server check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check
+        env:
+          QB_URL: ${{ secrets.QB_URL }}
+          QB_TOKEN: ${{ secrets.QB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, time, urllib.request
+          U, T = os.environ["QB_URL"].rstrip("/"), os.environ["QB_TOKEN"]
+          def call(m, p, body=None):
+              r = urllib.request.Request(U + p, method=m, data=json.dumps(body).encode() if body is not None else None,
+                                         headers={"Authorization": "Bearer " + T, "Content-Type": "application/json"})
+              return json.load(urllib.request.urlopen(r, timeout=30))
+          probe = {"id": "check.probe", "deleted": True, "updatedAt": int(time.time() * 1000)}
+          res = call("POST", "/api/sync", {"device": "github-check", "platform": "check", "since": 2**53, "changes": [{"c": "goals", "r": probe}]})
+          print("server keeps goals:", "NO (old server version)" if res.get("rejected") else "yes")
+          st = call("GET", "/api/state")
+          live = {c: [r for r in rs if not r.get("deleted")] for c, rs in st.items()}
+          print("records:", {c: len(v) for c, v in sorted(live.items())})
+          qs = live.get("quests", [])
+          print("quests with a goal link:", sum(1 for q in qs if q.get("goalId")), "| lernplan:", sum(1 for q in qs if q.get("source") == "lernplan"),
+                "| physics-rpg:", sum(1 for q in qs if q.get("source") == "physics-rpg"))
+          d = call("GET", "/api/devices")
+          for x in d["devices"]:
+              print("device", x.get("platform"), x.get("version"), "last sync", round((d["serverTime"] - (x.get("lastSync") or 0)) / 60000), "min ago")
+          print("releases:", {p: (r or {}).get("code") for p, r in d.get("releases", {}).items()})
+          PY
