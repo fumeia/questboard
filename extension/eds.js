@@ -36,14 +36,18 @@ export class Eds {
         return obj;
     }
 
-    /** Writable/visible calendars, cached for 10 minutes. */
+    /** Writable/visible calendars, cached for 6 hours (each fetch starts a gjs process; the popup refreshes it in the background). */
     async calendars(force = false) {
-        if (!force && this._cals && Date.now() - this._calsAt < 600000)
+        if (!force && this._cals && Date.now() - this._calsAt < 6 * 3600000)
             return this._cals;
         const {calendars} = await this.call({cmd: 'list'});
         this._cals = calendars;
         this._calsAt = Date.now();
         return calendars;
+    }
+
+    cacheAgeMs() {
+        return this._cals ? Date.now() - this._calsAt : Infinity;
     }
 
     get cachedCalendars() {

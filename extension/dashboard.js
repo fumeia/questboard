@@ -83,12 +83,22 @@ export class Dashboard {
         this.calendar.setWidth(Math.round(Math.min(380, Math.max(250, width * 0.37))));
     }
 
+    /** Popup opened: rebuild only what changed while it was closed (a full rebuild costs seconds on a slow laptop). */
     onOpen() {
+        const t0 = Date.now();
         this._open = true;
         this._pickerFor = null;
-        this._page = 'matrix';
-        this.calendar.onOpen();
-        this._setPage('matrix');
+        const calRebuild = this.calendar.onOpen();
+        const day = dateKey();
+        if (this._page !== 'matrix' || this._stale || this._renderedDay !== day) {
+            this._setPage('matrix');      // full render, calendar included
+        } else {
+            this._renderHeader(t0);
+            this._renderSync();
+            if (calRebuild)
+                this.calendar.render();
+        }
+        this._log?.debug?.('perf', `popup ready in ${Date.now() - t0} ms`);
     }
 
     onClose() {
@@ -760,9 +770,11 @@ export class Dashboard {
         void force;
         if (!this._open) {
             this._stale = true;
+            this.calendar?.markStale();
             return;
         }
         this._stale = false;
+        this._renderedDay = dateKey();
         const now = Date.now();
         this._questTimeLabels.clear();
         this._stepTimeLabels.clear();

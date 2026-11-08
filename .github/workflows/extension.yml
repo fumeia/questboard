@@ -1,0 +1,39 @@
+# Desktop extension: packs it and publishes it to your Questboard server, like android.yml does for the APK.
+# Installed desktops update themselves (Settings › check for updates, or within 6 h); the new version loads after the next log-in.
+# Publishing needs a higher "version" in extension/metadata.json than the server has (tools/qb bump extension).
+name: Desktop extension
+
+on:
+  push:
+    paths: ["extension/**", "tools/qb", "tools/gen_css.py", ".github/workflows/extension.yml"]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pack
+        run: |
+          command -v glib-compile-schemas >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q libglib2.0-bin; }
+          python3 tools/qb pack
+          CODE=$(python3 -c 'import json;print(json.load(open("extension/metadata.json"))["version"])')
+          echo "CODE=$CODE" >> "$GITHUB_ENV"
+
+      - name: Publish to your Questboard server
+        env:
+          QB_URL: ${{ secrets.QB_URL }}
+          QB_TOKEN: ${{ secrets.QB_TOKEN }}
+        if: env.QB_URL != ''
+        run: |
+          LATEST=$(curl -sf -H "Authorization: Bearer $QB_TOKEN" "$QB_URL/api/releases/extension/latest" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("code",0))' || echo 0)
+          if [ "$CODE" -le "$LATEST" ]; then
+            echo "::warning::Not published: the server already has extension version $LATEST. Bump it (tools/qb bump extension) and push again."
+            exit 0
+          fi
+          curl -sf -H "Authorization: Bearer $QB_TOKEN" -H "Content-Type: application/octet-stream" \
+            --data-binary @"dist/questboard-extension-$CODE.zip" \
+            "$QB_URL/api/releases/extension?code=$CODE&name=$CODE&notes=GitHub%20build%20${GITHUB_SHA::7}" > /dev/null
+          echo "Published desktop extension v$CODE"
