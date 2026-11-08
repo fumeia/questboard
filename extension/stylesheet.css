@@ -542,3 +542,5 @@
 .qb-light .qb-step-goal { font-size: 0.75em; padding: 1px 6px; max-width: 110px; }
 .qb-dark .qb-scroll { -st-vfade-offset: 0px; -st-hfade-offset: 0px; }
 .qb-light .qb-scroll { -st-vfade-offset: 0px; -st-hfade-offset: 0px; }
+.qb-dark .qb-icon-picker-row { spacing: 2px; }
+.qb-light .qb-icon-picker-row { spacing: 2px; }

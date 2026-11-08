@@ -356,3 +356,4 @@
 
 /* no fading at the top and bottom of scrolling lists (it hid the first and last lines) */
 .qb-scroll { -st-vfade-offset: 0px; -st-hfade-offset: 0px; }
+.qb-icon-picker-row { spacing: 2px; }
