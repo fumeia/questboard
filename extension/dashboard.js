@@ -49,8 +49,7 @@ export class Dashboard {
         this._buildHeader();
 
         const body = box({style_class: 'qb-body', x_expand: true, y_expand: true});
-        // natural_width 1: the left side takes the space the calendar leaves, however wide its content wants to be
-        this._left = box({vertical: true, style_class: 'qb-left', x_expand: true, y_expand: true, natural_width: 1, clip_to_allocation: true});
+        this._left = box({vertical: true, style_class: 'qb-left', x_expand: true, y_expand: true});
         this._left.add_child(this._buildTabs());
 
         this.habitStrip = new HabitStrip(this);

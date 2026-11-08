@@ -347,7 +347,11 @@ export default class QuestboardExtension extends Extension {
                 this._dashboard.rebuild();
             } catch (e2) {
                 this._log.exception('open-retry', e2);
-                menu.close();
+                // close it after this signal has finished (closing a menu while it is still opening is not safe)
+                GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+                    menu.close();
+                    return GLib.SOURCE_REMOVE;
+                });
                 return;
             }
         }
