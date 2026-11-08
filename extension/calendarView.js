@@ -83,6 +83,12 @@ export class CalendarView {
         this._blocksSig = '';
         this._open = false;
         this._calError = null;
+        this._stale = true;      // something changed while the popup was closed → rebuild on the next open
+        this._lastForce = 0;     // last forced re-query of the shell's calendar server
+        this._timers = new Set();
+        // calendar list (colours, writable calendars) comes from a separate gjs process: fetch it once in the
+        // background after login, so opening the popup never waits for it
+        this._later(20000, () => this._loadCalendars());
 
         this.actor = box({vertical: true, style_class: 'qb-cal', y_expand: true});
         this.actor.connect('destroy', () => this._onDestroy());
@@ -189,8 +195,26 @@ export class CalendarView {
         this._source.requestRange(this._rangeBegin, this._rangeEnd);
     }
 
+    /** Run fn once after ms at low priority (cancelled on destroy). */
+    _later(ms, fn) {
+        const id = GLib.timeout_add(GLib.PRIORITY_LOW, ms, () => {
+            this._timers.delete(id);
+            fn();
+            return GLib.SOURCE_REMOVE;
+        });
+        this._timers.add(id);
+    }
+
+    markStale() {
+        this._stale = true;
+    }
+
     _queueRender() {
-        if (this._renderId || !this._open)
+        if (!this._open) {
+            this._stale = true;
+            return;
+        }
+        if (this._renderId)
             return;
         this._renderId = GLib.timeout_add(GLib.PRIORITY_DEFAULT_IDLE, 150, () => {
             this._renderId = 0;
@@ -215,17 +239,35 @@ export class CalendarView {
 
     // ---- public ----------------------------------------------------------
 
+    /**
+     * Popup opened. Returns true when the calendar must be rebuilt; when nothing changed since the last open, the widgets from
+     * last time are kept (only the now-line moves), which is what makes opening fast on a small laptop.
+     */
     onOpen() {
         this._open = true;
         this._ensureSource();
-        this._viewDate = startOfDay(new Date());
+        const today = startOfDay(new Date());
+        const rebuild = this._stale || !sameDay(today, this._viewDate) || !!this._editor || !!this._pick || !!this._status;
+        this._viewDate = today;
         this._pick = null;
         this._editor = null;
         this._status = null;
-        this._blocksSig = '';
-        this._requestRange(true);
+        // the shell pushes event changes by itself; a forced re-query only every 10 minutes
+        const now = Date.now();
+        if (now - this._lastForce > 10 * 60000) {
+            this._lastForce = now;
+            this._requestRange(true);
+        } else {
+            this._requestRange(false);
+        }
+        if (this._eds && !this._eds.unavailable && this._eds.cacheAgeMs() > 30 * 60000)
+            this._later(4000, () => this._open && this._loadCalendars());
         this._scrollToFocus();
-        this._loadCalendars();
+        if (rebuild)
+            this._blocksSig = '';
+        else
+            this._renderNow(new Date());
+        return rebuild;
     }
 
     onClose() {
@@ -953,8 +995,11 @@ export class CalendarView {
     // ---- rendering -------------------------------------------------------
 
     render() {
-        if (!this._open)
+        if (!this._open) {
+            this._stale = true;
             return;
+        }
+        this._stale = false;
         const today = new Date();
         this._title.text = fmtDate(this._viewDate, '%A, %e %B');
         if (sameDay(today, this._viewDate))
@@ -1096,6 +1141,9 @@ export class CalendarView {
     }
 
     _onDestroy() {
+        for (const id of this._timers)
+            GLib.source_remove(id);
+        this._timers.clear();
         if (this._renderId) {
             GLib.source_remove(this._renderId);
             this._renderId = 0;

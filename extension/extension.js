@@ -85,7 +85,8 @@ export default class QuestboardExtension extends Extension {
                     this._setClassic(false);
                     this._applySize();
                     this._dashboard.onOpen();
-                    this._sync.syncNow('open');
+                    // network after the popup is drawn, so opening never waits for it
+                    this._sync.schedule(1200);
                     this._updater.maybeCheck();
                 } else {
                     this._dashboard.onClose();
