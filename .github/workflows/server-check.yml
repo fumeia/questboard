@@ -3,6 +3,8 @@ name: Server check
 
 on:
   workflow_dispatch:
+  push:
+    paths: [".github/workflows/server-check.yml"]
 
 jobs:
   check:
