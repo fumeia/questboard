@@ -211,4 +211,17 @@ assert(!only.focusBlocks(k(noon)).some(f => f.id.startsWith('rpgtime.')), 'no fa
     const today = sg.dailyByGoal(7)[6]; assert.equal(today.parts[0].id, g.id, 'today\'s bar is coloured by the goal');
     assert(Math.abs(today.parts[0].ms - 20 * 60000) < 200); }
   const order = desk.goalOrder(); assert.deepEqual(order, [...order].sort((a, b) => desk.data.colls.goals[a].createdAt - desk.data.colls.goals[b].createdAt)); }
+// calendar blocks: every focus timer and Physics RPG stretches with real times; pieces of one quest < 2 min apart are one block
+{ process.env.QB_DIR = process.env.T + '/blocks'; const cb = new Store(); const q = cb.addQuest('Blatt 9', 'q2');
+  const day = new Date(); day.setHours(9, 0, 0, 0); const t0 = day.getTime(), key = k(day);
+  const ses = (id, kind, a, b, extra = {}) => cb._put('sessions', {id, questId: q.id, kind, start: t0 + a * 60000, end: t0 + b * 60000,
+    durationMs: (b - a) * 60000, date: key, ...extra});
+  ses('s1', 'stopwatch', 0, 20); ses('s2', 'stopwatch', 21, 40); ses('s3', 'break', 40, 45); ses('s4', 'custom', 60, 60.5);
+  cb._put('sessions', {id: 'rpgtime.qm.x.derivation.1', questId: 'rpg.qm', kind: 'rpg', exact: true, label: 'derivations', start: t0 + 120 * 60000,
+    end: t0 + 150 * 60000, durationMs: 1800000, date: key});
+  cb._put('sessions', {id: 'rpgtime.qm.x.other', questId: 'rpg.qm', kind: 'rpg', label: 'not sorted', start: t0, end: t0 + 600000, durationMs: 600000, date: key});
+  const bl = cb.focusBlocks(key, t0 + 200 * 60000);
+  assert.equal(bl.length, 2, 'stopwatch pieces merged, break / under 1 min / day totals left out');
+  assert.equal(bl[0].end - bl[0].start, 40 * 60000, 'the merged stopwatch block runs 9:00–9:40');
+  assert(bl[1].rpg && bl[1].title.endsWith('· derivations') && bl[1].start === t0 + 120 * 60000, 'the game stretch at its real time'); }
 console.log('level', levelInfo(desk.xp), 'balance', desk.balance, '\nALL SYNC TESTS PASSED');

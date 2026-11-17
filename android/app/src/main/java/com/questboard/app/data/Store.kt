@@ -1011,24 +1011,40 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
     fun startPomodoro(questId: String?, minutes: Int, stepId: String? = null) =
         addTimer("countdown", "pomodoro", minutes * 60_000L, questId, timerLabel(questId, stepId) ?: "Focus", stepId)
 
-    data class FocusBlock(val id: String, val title: String, val questId: String?, val start: Long, val end: Long, val live: Boolean)
+    data class FocusBlock(val id: String, val title: String, val questId: String?, val start: Long, val end: Long, val live: Boolean,
+                          val rpg: Boolean = false)
 
     /**
      * Pomodoro time on one day, for the calendar: finished or paused segments (synced
      * sessions) plus running Pomodoros, drawn from their start to their planned end.
      */
-    fun focusBlocks(key: String = dateKey()): List<FocusBlock> {
-        val out = mutableListOf<FocusBlock>()
+    fun focusBlocks(key: String = dateKey(), now: Long = System.currentTimeMillis()): List<FocusBlock> {
+        // every focus timer (Pomodoro, countdown, stopwatch; not breaks) as it ran, and Physics RPG study stretches at their real time
+        // (sessions with exact start/end). Pieces of one quest less than 2 min apart (pause, resume) are one block. Same as extension/store.js.
+        val timerKinds = setOf("pomodoro", "custom", "stopwatch")
+        val raw = mutableListOf<FocusBlock>()
         for (s in all("sessions")) {
-            if (s.str("kind") != "pomodoro" || s.str("date") != key) continue
+            val st = s.optLong("start"); val en = s.optLong("end")
+            if (s.str("date") != key || s.optLong("durationMs") < 60_000 || en <= st) continue
             val qid = s.str("questId").ifEmpty { null }
-            out += FocusBlock(s.str("id"), timerLabel(qid, s.str("stepId").ifEmpty { null }) ?: "Focus", qid,
-                s.optLong("start"), s.optLong("end"), false)
+            if (s.str("kind") in timerKinds)
+                raw += FocusBlock(s.str("id"), timerLabel(qid, s.str("stepId").ifEmpty { null }) ?: "Focus", qid, st, en, false)
+            else if (s.str("kind") == "rpg" && s.optBoolean("exact"))
+                raw += FocusBlock(s.str("id"), "${qid?.let { getQuest(it)?.str("title") } ?: "Physics RPG"} · ${s.str("label").ifEmpty { s.str("cat") }}",
+                    qid, st, en, false, rpg = true)
+        }
+        val out = mutableListOf<FocusBlock>()
+        for (b in raw.sortedBy { it.start }) {
+            val last = out.lastOrNull()
+            if (last != null && !last.rpg && !b.rpg && last.questId == b.questId && last.title == b.title && b.start - last.end <= 120_000)
+                out[out.lastIndex] = last.copy(end = max(last.end, b.end))
+            else out += b
         }
         for (t in timers) {
             val st = t.startedAt ?: continue
-            if (t.kind != "pomodoro" || dateKeyOf(st) != key) continue
-            out += FocusBlock(t.id, t.label, t.questId, st, st + max(0, t.durationMs - t.elapsedMs), true)
+            if (t.kind !in timerKinds || dateKeyOf(st) != key) continue
+            val end = if (t.mode == "countdown") st + max(0, t.durationMs - t.elapsedMs) else max(now, st + 60_000)
+            out += FocusBlock(t.id, t.label, t.questId, st, end, true)
         }
         return out.sortedBy { it.start }
     }

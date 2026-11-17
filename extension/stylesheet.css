@@ -578,3 +578,7 @@
 .qb-light .qb-heat-month { width: 10px; font-size: 0.6em; color: rgba(0,0,0,0.605); }
 .qb-dark .qb-trash-link { padding: 2px 6px; margin-top: 2px; font-size: 0.85em; }
 .qb-light .qb-trash-link { padding: 2px 6px; margin-top: 2px; font-size: 0.85em; }
+.qb-dark .qb-focus.rpg { background-color: rgba(51,199,222,0.22); border-left: 3px solid rgba(51,199,222,0.7); }
+.qb-light .qb-focus.rpg { background-color: rgba(51,199,222,0.22); border-left: 3px solid rgba(51,199,222,0.7); }
+.qb-dark .qb-focus.rpg:hover { background-color: rgba(51,199,222,0.45); }
+.qb-light .qb-focus.rpg:hover { background-color: rgba(51,199,222,0.45); }

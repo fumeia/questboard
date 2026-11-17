@@ -61,6 +61,7 @@ import java.time.format.TextStyle
 import java.util.Locale
 
 private const val HOUR_DP = 56
+private val RPG_COLOR = Color(0xFF33C7DE)  // Physics RPG study stretches
 private const val GUTTER_DP = 46
 
 private data class Block(val key: String, val title: String, val start: Int, val end: Int, val color: Color,
@@ -176,7 +177,8 @@ fun CalendarScreen(app: QuestboardApp, v: Int, permVersion: Int, now: Long = Sys
             for (f in app.store.focusBlocks(dateKey(day))) {
                 val s = ((maxOf(f.start, dayStart) - dayStart) / 60000).toInt()
                 val en = ((minOf(f.end, dayStart + 86_400_000) - dayStart) / 60000).toInt()
-                list += Block("f${f.id}", "Focus · ${f.title}", s, maxOf(s + 10, en), C.red, questId = f.questId, focus = true, live = f.live)
+                list += Block("f${f.id}", if (f.rpg) f.title else "Focus · ${f.title}", s, maxOf(s + 10, en), if (f.rpg) RPG_COLOR else C.red,
+                    questId = f.questId, focus = true, live = f.live)
             }
             layout(list)
         }

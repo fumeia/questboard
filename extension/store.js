@@ -1346,19 +1346,34 @@ export class Store {
      * sessions) plus running Pomodoros, drawn from their start to their planned end.
      */
     focusBlocks(key = dateKey(), now = Date.now()) {
-        void now;
-        const out = [];
+        // every focus timer (Pomodoro, countdown, stopwatch; not breaks) as it ran, and Physics RPG study stretches at their real
+        // time (sessions with exact start/end). Pieces of one quest less than 2 min apart (pause, resume) are drawn as one block.
+        const TIMER = new Set(['pomodoro', 'custom', 'stopwatch']);
+        const raw = [];
         for (const s of this.all('sessions')) {
-            if (s.kind !== 'pomodoro' || s.date !== key)
+            if (s.date !== key || !(s.durationMs >= 60000) || !(s.end > s.start))
                 continue;
-            out.push({id: s.id, title: this.timerLabel(s.questId, s.stepId) ?? 'Focus', questId: s.questId ?? null,
-                start: s.start, end: s.end, live: false});
+            if (TIMER.has(s.kind))
+                raw.push({id: s.id, title: this.timerLabel(s.questId, s.stepId) ?? 'Focus', questId: s.questId ?? null, start: s.start, end: s.end,
+                    live: false, rpg: false});
+            else if (s.kind === 'rpg' && s.exact)
+                raw.push({id: s.id, title: `${this.getQuest(s.questId)?.title ?? 'Physics RPG'} · ${s.label ?? s.cat ?? 'study'}`,
+                    questId: s.questId ?? null, start: s.start, end: s.end, live: false, rpg: true});
+        }
+        raw.sort((a, b) => a.start - b.start);
+        const out = [];
+        for (const b of raw) {
+            const last = out[out.length - 1];
+            if (last && !last.rpg && !b.rpg && last.questId === b.questId && last.title === b.title && b.start - last.end <= 120000)
+                last.end = Math.max(last.end, b.end);
+            else
+                out.push({...b});
         }
         for (const t of this.data.timers) {
-            if (t.kind !== 'pomodoro' || !t.startedAt || dateKey(new Date(t.startedAt)) !== key)
+            if (!TIMER.has(t.kind) || !t.startedAt || dateKey(new Date(t.startedAt)) !== key)
                 continue;
-            out.push({id: t.id, title: t.label, questId: t.questId ?? null,
-                start: t.startedAt, end: t.startedAt + Math.max(0, t.durationMs - t.elapsedMs), live: true});
+            const end = t.mode === 'countdown' ? t.startedAt + Math.max(0, t.durationMs - t.elapsedMs) : Math.max(now, t.startedAt + 60000);
+            out.push({id: t.id, title: t.label, questId: t.questId ?? null, start: t.startedAt, end, live: true, rpg: false});
         }
         return out.sort((a, b) => a.start - b.start);
     }

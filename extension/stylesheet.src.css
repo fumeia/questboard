@@ -380,3 +380,7 @@
 
 /* "Recently deleted" under the matrix */
 .qb-trash-link { padding: 2px 6px; margin-top: 2px; font-size: 0.85em; }
+
+/* Physics RPG study stretches in the calendar */
+.qb-focus.rpg { background-color: rgba(51,199,222,0.22); border-left: 3px solid rgba(51,199,222,0.7); }
+.qb-focus.rpg:hover { background-color: rgba(51,199,222,0.45); }
