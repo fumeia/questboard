@@ -202,4 +202,13 @@ assert(!only.focusBlocks(k(noon)).some(f => f.id.startsWith('rpgtime.')), 'no fa
 { const st = desk.stats(0); const total = st.byGoal.reduce((a, g) => a + g.ms, 0);
   assert.equal(total, st.focusMs, 'time per goal adds up to all focus time');
   assert(st.byGoal.some(g => g.title === 'No goal'), 'a No goal row'); }
+// stats: focus per day split by goal (stacked bars) adds up to the day's focus; goal colours keep their order
+{ const bars = desk.dailyByGoal(30); assert.equal(bars.length, 30); assert.equal(bars[29].date, k(new Date()));
+  const fp = desk.focusPerDay();
+  for (const d of bars) assert.equal(d.total, fp[d.date] ?? 0, `bars add up for ${d.date}`);
+  { process.env.QB_DIR = process.env.T + '/statsgoal'; const sg = new Store(); const g = sg.addGoal('5.5 in QM 1'); const q = sg.addQuest('Blatt 9', 'q2');
+    sg.updateQuest(q.id, {goalId: g.id}); sg.toggleQuestTimer(q.id); sg.runningTimers()[0].startedAt -= 20 * 60000; sg.toggleQuestTimer(q.id);
+    const today = sg.dailyByGoal(7)[6]; assert.equal(today.parts[0].id, g.id, 'today\'s bar is coloured by the goal');
+    assert(Math.abs(today.parts[0].ms - 20 * 60000) < 200); }
+  const order = desk.goalOrder(); assert.deepEqual(order, [...order].sort((a, b) => desk.data.colls.goals[a].createdAt - desk.data.colls.goals[b].createdAt)); }
 console.log('level', levelInfo(desk.xp), 'balance', desk.balance, '\nALL SYNC TESTS PASSED');

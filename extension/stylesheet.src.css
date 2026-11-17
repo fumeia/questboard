@@ -363,3 +363,17 @@
 .qb-preset-box { spacing: 6px; padding: 4px 2px 8px 2px; }
 .qb-new-min { font-size: 1.5em; }
 .qb-timer-name { font-size: 0.9em; }
+
+/* Stats: bars stacked by goal, heatmap, goal swatches */
+.qb-chart-month { spacing: 2px; }
+.qb-chart-btn { padding: 0; border-radius: 4px; }
+.qb-chart-btn:hover { background-color: rgba(255,255,255,0.06); }
+.qb-stack { border-radius: 3px 3px 0 0; }
+.qb-stack.picked { border: 1px solid rgba(255,255,255,0.85); }
+.qb-goal-swatch { width: 10px; height: 10px; border-radius: 5px; margin-right: 6px; }
+.qb-heatmap { spacing: 2px; padding: 8px; border-radius: 10px; background-color: rgba(255,255,255,0.04); }
+.qb-heat-row { spacing: 2px; }
+.qb-heat-col { spacing: 2px; }
+.qb-heat-cell { width: 10px; height: 10px; border-radius: 2px; }
+.qb-heat-name { width: 18px; height: 10px; font-size: 0.6em; color: rgba(255,255,255,0.55); }
+.qb-heat-month { width: 10px; font-size: 0.6em; color: rgba(255,255,255,0.55); }

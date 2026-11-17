@@ -1011,6 +1011,38 @@ export class Store {
     }
 
     /** Goal a session counts toward: its quest's goal, else its step's goal (only live goals). */
+    /** Every goal ever made, oldest first: a goal's colour is its place in this list, so it never changes (same as Store.kt). */
+    goalOrder() {
+        return Object.values(this.data.colls.goals).filter(g => g.createdAt).sort((a, b) => a.createdAt - b.createdAt).map(g => g.id);
+    }
+
+    /** Focus per day for the last `days` days, split by goal ('' = no goal), in goal order: the stacked bars of the stats. */
+    dailyByGoal(days, now = new Date()) {
+        const keys = [];
+        for (let i = days - 1; i >= 0; i--)
+            keys.push(dateKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i)));
+        const wanted = new Set(keys), m = {};
+        for (const s of this.all('sessions')) {
+            if (s.kind === 'break' || !wanted.has(s.date))
+                continue;
+            const q = s.questId ? this.data.colls.quests[s.questId] : null;
+            const g = this._sessionGoal(s, q) ?? '';
+            const d = (m[s.date] ??= {});
+            d[g] = (d[g] ?? 0) + s.durationMs;
+        }
+        const order = [...this.goalOrder(), ''];
+        return keys.map(k => {
+            const d = m[k] ?? {};
+            const parts = order.filter(g => (d[g] ?? 0) > 0).map(g => ({id: g, ms: d[g]}));
+            return {date: k, total: parts.reduce((a, p) => a + p.ms, 0), parts};
+        });
+    }
+
+    /** Focus per day, all time (the heatmap). */
+    focusPerDay() {
+        return this._derived().focusByDay;
+    }
+
     _sessionGoal(s, q) {
         if (!q || q.deleted)
             return null;

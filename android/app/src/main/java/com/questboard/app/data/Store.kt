@@ -744,9 +744,49 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
     }
 
     data class DayStat(val date: String, val focusMs: Long, val done: Int)
+
+    /** Goal a session counts toward ("" = none): its quest's goal, else its step's goal; only goals that still exist. */
+    private fun sessionGoal(s: JSONObject): String {
+        val qid = s.str("questId")
+        val q = (if (qid.isNotEmpty()) colls.getValue("quests")[qid] else null) ?: return ""
+        if (q.bool("deleted")) return ""
+        val sid = s.str("stepId")
+        val gid = q.str("goalId").ifEmpty { steps(q).find { sid.isNotEmpty() && it.str("id") == sid }?.str("goalId") ?: "" }
+        return if (gid.isNotEmpty() && getGoal(gid) != null) gid else ""
+    }
+
+    /** Every goal ever made, oldest first: a goal's colour is its place in this list, so it never changes (same in extension/store.js). */
+    fun goalOrder(): List<String> = colls.getValue("goals").values.filter { it.has("createdAt") }.sortedBy { it.optLong("createdAt") }.map { it.str("id") }
+
+    data class DayGoals(val date: String, val total: Long, val parts: List<Pair<String, Long>>)
+
+    /** Focus per day for the last [days] days, split by goal ("" = no goal), in goal order: the stacked bars of the stats. */
+    fun dailyByGoal(days: Int): List<DayGoals> {
+        val today = LocalDate.now()
+        val keys = (days - 1 downTo 0).map { dateKey(today.minusDays(it.toLong())) }
+        val wanted = keys.toSet()
+        val m = mutableMapOf<String, MutableMap<String, Long>>()
+        for (s in all("sessions")) {
+            val d = s.str("date")
+            if (s.str("kind") == "break" || d !in wanted) continue
+            val g = sessionGoal(s)
+            val mm = m.getOrPut(d) { mutableMapOf() }
+            mm[g] = (mm[g] ?: 0) + s.optLong("durationMs")
+        }
+        val order = goalOrder() + ""
+        return keys.map { k ->
+            val mm = m[k] ?: emptyMap<String, Long>()
+            DayGoals(k, mm.values.sum(), order.filter { (mm[it] ?: 0) > 0 }.map { it to mm.getValue(it) })
+        }
+    }
+
+    /** Focus per day, all time (the heatmap). */
+    fun focusPerDay(): Map<String, Long> = derived().focusByDay
     data class Stats(val focusMs: Long, val xp: Int, val questsDone: Int, val pomodoros: Int,
                      val byTopic: List<Pair<String, Long>>, val byGoal: List<Pair<String, Long>>, val topQuests: List<Pair<String, Long>>,
-                     val daily: List<DayStat>, val streak: Int, val bestStreak: Int)
+                     val daily: List<DayStat>, val streak: Int, val bestStreak: Int,
+                     /** time per goal by id ("" = no goal), most first: for the coloured stats */
+                     val goalTime: List<Pair<String, Long>> = emptyList())
 
     fun stats(days: Int = 7): Stats {
         val today = LocalDate.now()
@@ -765,12 +805,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
             val topic = s.str("topic").ifEmpty { if (q != null && !q.bool("deleted")) q.str("topic") else "" }.ifEmpty { "No topic" }
             byTopic[topic] = (byTopic[topic] ?: 0) + ms
             if (qid.isNotEmpty()) byQuest[qid] = (byQuest[qid] ?: 0) + ms
-            var gid = ""
-            if (q != null && !q.bool("deleted")) {
-                val sid = s.str("stepId")
-                gid = q.str("goalId").ifEmpty { steps(q).find { it.str("id") == sid && sid.isNotEmpty() }?.str("goalId") ?: "" }
-                if (getGoal(gid) == null) gid = ""
-            }
+            val gid = sessionGoal(s)
             byGoal[gid] = (byGoal[gid] ?: 0) + ms  // "" = No goal, so all time is accounted for
         }
         var xp = 0; var done = 0; var pomos = 0
@@ -790,7 +825,8 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         val title = { id: String -> colls.getValue("quests")[id]?.takeIf { !it.bool("deleted") }?.str("title") ?: "(deleted quest)" }
         return Stats(focus, xp, done, pomos, byTopic.entries.sortedByDescending { it.value }.map { it.key to it.value },
             byGoal.entries.sortedByDescending { it.value }.map { (if (it.key.isEmpty()) NO_GOAL else getGoal(it.key)?.str("title") ?: "(deleted goal)") to it.value },
-            byQuest.entries.sortedByDescending { it.value }.take(5).map { title(it.key) to it.value }, daily, streak(), best)
+            byQuest.entries.sortedByDescending { it.value }.take(5).map { title(it.key) to it.value }, daily, streak(), best,
+            byGoal.entries.sortedByDescending { it.value }.map { it.key to it.value })
     }
 
     // ---- habits -------------------------------------------------------------
