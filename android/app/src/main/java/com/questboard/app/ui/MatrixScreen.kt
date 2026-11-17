@@ -61,6 +61,8 @@ import com.questboard.app.data.jobj
 import com.questboard.app.data.questXp
 import com.questboard.app.data.str
 import java.time.LocalDate
+import androidx.compose.ui.text.input.KeyboardType
+import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 @Composable
@@ -191,7 +193,6 @@ fun QuestSheet(app: QuestboardApp, id: String, v: Int, now: Long, onClose: () ->
     val ctx = LocalContext.current
     var title by remember(id) { mutableStateOf(q.str("title")) }
     var notes by remember(id) { mutableStateOf(q.str("notes")) }
-    var time by remember(id) { mutableStateOf(q.optJSONObject("scheduled")?.let { fmtMin(it.optInt("start")) } ?: "") }
     var confirmDelete by remember { mutableStateOf(false) }
     val saveText = {
         if (title.trim().isNotEmpty() && title != q.str("title")) s.updateQuest(id, mapOf("title" to title.trim()))
@@ -226,14 +227,7 @@ fun QuestSheet(app: QuestboardApp, id: String, v: Int, now: Long, onClose: () ->
             QuadrantChips(q.str("quadrant")) { s.updateQuest(id, mapOf("quadrant" to it)) }
             GoalChips(app, q)
             DueChips(q.optJSONObject("due")?.str("date")?.ifEmpty { null }) { d -> s.updateQuest(id, mapOf("due" to d?.let { jobj("date" to it) })) }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Muted("Schedule today at", size = 12)
-                OutlinedTextField(time, { time = it }, singleLine = true, placeholder = { Text("14:30") }, modifier = Modifier.size(110.dp, 56.dp),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = {
-                        parseHm(time)?.let { m -> s.updateQuest(id, mapOf("scheduled" to jobj("date" to dateKey(), "start" to m, "duration" to 60))) }
-                    }))
-                if (q.optJSONObject("scheduled") != null) Pill("Clear", C.card) { time = ""; s.updateQuest(id, mapOf("scheduled" to null)) }
-            }
+            ScheduleChips(app, q)
             if (!q.optBoolean("done")) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 val running = s.isQuestRunning(id)
                 Pill(if (running) "Pause timer" else "Start stopwatch", if (running) C.green.copy(alpha = 0.4f) else C.card) { s.toggleQuestTimer(id) }
@@ -339,4 +333,65 @@ fun RecentlyDeletedDialog(app: QuestboardApp, v: Int, onClose: () -> Unit) {
             }
         },
         confirmButton = { TextButton(onClick = onClose) { Text("Close") } })
+}
+
+/**
+ * Put a quest into the calendar in two taps: when (now, in 15 / 30 min, in 1 h, or a typed time today), then how long
+ * (15 min to 2 h, or typed minutes). Shows where it is scheduled now, with Clear.
+ */
+@Composable
+fun ScheduleChips(app: QuestboardApp, q: org.json.JSONObject) {
+    val s = app.store
+    val id = q.str("id")
+    var start by remember(id) { mutableStateOf<LocalDateTime?>(null) }  // picked start, waiting for the length
+    var time by remember(id) { mutableStateOf("") }
+    var mins by remember(id) { mutableStateOf("") }
+    val sc = q.optJSONObject("scheduled")
+    fun plan(at: LocalDateTime, minutes: Int) {
+        s.updateQuest(id, mapOf("scheduled" to jobj("date" to dateKey(at.toLocalDate()), "start" to at.hour * 60 + at.minute, "duration" to minutes)))
+        start = null; time = ""; mins = ""
+    }
+    fun inMin(m: Long): LocalDateTime {  // from now, rounded up to the next 5 minutes
+        val t = LocalDateTime.now().plusMinutes(m).withSecond(0).withNano(0)
+        return t.plusMinutes(((5 - t.minute % 5) % 5).toLong())
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (sc != null) Row(verticalAlignment = Alignment.CenterVertically) {
+            val d = sc.str("date"); val st = sc.optInt("start"); val du = sc.optInt("duration", 60)
+            Muted("In the calendar: " + (if (d == dateKey()) "today" else if (d == dateKey(LocalDate.now().plusDays(1))) "tomorrow" else d) +
+                " ${fmtMin(st)}–${fmtMin((st + du) % 1440)}", Modifier.weight(1f), 12)
+            Pill("Clear", C.card) { s.updateQuest(id, mapOf("scheduled" to null)) }
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Muted("Schedule", size = 12)
+            for ((label, m) in listOf("Now" to 0L, "in 15 min" to 15L, "in 30 min" to 30L, "in 1 h" to 60L)) {
+                val at = if (m == 0L) LocalDateTime.now().withSecond(0).withNano(0) else inMin(m)
+                Pill(label, if (start == at) C.accent else C.card) { start = at }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Muted("or today at", size = 12)
+            OutlinedTextField(time, { time = it }, singleLine = true, placeholder = { Text("14:30") }, modifier = Modifier.size(110.dp, 56.dp),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = {
+                    parseHm(time)?.let { m -> start = LocalDate.now().atStartOfDay().plusMinutes(m.toLong()) }
+                }))
+        }
+        start?.let { at ->
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(C.accent.copy(alpha = 0.12f)).padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("From ${fmtMin(at.hour * 60 + at.minute)}" + (if (at.toLocalDate() != LocalDate.now()) " tomorrow" else "") + " — for how long?",
+                    fontSize = 13.sp, color = C.text)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for (m in listOf(15, 25, 30, 45, 60, 90, 120)) Pill(if (m < 60) "$m min" else if (m % 60 == 0) "${m / 60} h" else "${m / 60} h ${m % 60}", C.card) { plan(at, m) }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(mins, { mins = it.filter(Char::isDigit) }, singleLine = true, placeholder = { Text("min") },
+                        modifier = Modifier.size(90.dp, 56.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { mins.toIntOrNull()?.takeIf { it in 1..720 }?.let { plan(at, it) } }))
+                    Pill("Set", C.accent.copy(alpha = 0.5f)) { mins.toIntOrNull()?.takeIf { it in 1..720 }?.let { plan(at, it) } }
+                    Pill("Cancel", C.card) { start = null }
+                }
+            }
+        }
+    }
 }
