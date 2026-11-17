@@ -576,3 +576,5 @@
 .qb-light .qb-heat-name { width: 18px; height: 10px; font-size: 0.6em; color: rgba(0,0,0,0.605); }
 .qb-dark .qb-heat-month { width: 10px; font-size: 0.6em; color: rgba(255,255,255,0.55); }
 .qb-light .qb-heat-month { width: 10px; font-size: 0.6em; color: rgba(0,0,0,0.605); }
+.qb-dark .qb-trash-link { padding: 2px 6px; margin-top: 2px; font-size: 0.85em; }
+.qb-light .qb-trash-link { padding: 2px 6px; margin-top: 2px; font-size: 0.85em; }

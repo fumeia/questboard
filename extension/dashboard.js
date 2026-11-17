@@ -20,7 +20,6 @@ const XP_BAR_W = 78;
 const TABS = [
     ['matrix', 'qb-grid', 'Matrix'],
     ['habits', 'qb-repeat', 'Habits'],
-    ['quests', 'qb-list', 'Quests'],
     ['timers', 'qb-stopwatch', 'Timers'],
     ['shop', 'qb-shop', 'Shop'],
     ['progress', 'qb-trophy', 'Progress'],
@@ -59,7 +58,7 @@ export class Dashboard {
         this._pages = {
             matrix: this._buildMatrixPage(),
             habits: this.habitsPage.actor,
-            quests: this._buildQuestsPage(),
+            trash: this._buildTrashPage(),  // no tab: opened from "Recently deleted" under the matrix (like the phone)
             timers: this._buildTimersPage(),
             shop: this.shopPage.actor,
             progress: this.progressPage.actor,
@@ -291,6 +290,10 @@ export class Dashboard {
             this._quads[q.id] = {list, count};
         });
         page.add_child(w);
+        // deleted by mistake? shown only when there is something to bring back
+        this._trashLink = button({style_class: 'qb-btn qb-flat qb-trash-link', x_align: Clutter.ActorAlign.START, visible: false,
+            child: iconLabel('qb-undo', '', 'qb-muted')}, () => this._setPage('trash'), 'trash-link');
+        page.add_child(this._trashLink);
         return page;
     }
 
@@ -308,6 +311,9 @@ export class Dashboard {
             for (const quest of quests)
                 list.add_child(this._questRow(quest, now));
         }
+        const gone = this._store.deletedQuests().length;
+        this._trashLink.child.labelActor.text = `Recently deleted · ${gone}  (click to restore)`;
+        this._trashLink.visible = gone > 0;
     }
 
     // ---- quest row -------------------------------------------------------
@@ -589,62 +595,30 @@ export class Dashboard {
 
     // ---- quests page -----------------------------------------------------
 
-    _buildQuestsPage() {
+    _buildTrashPage() {
         const page = box({vertical: true, style_class: 'qb-page', x_expand: true, y_expand: true});
-        this._questsList = box({vertical: true, style_class: 'qb-quest-list'});
-        page.add_child(scroll(this._questsList, {y_expand: true}));
-        const foot = box({style_class: 'qb-page-foot'});
-        this._archiveLabel = label('', 'qb-muted', {x_expand: true});
-        foot.add_child(this._archiveLabel);
-        this._trashBtn = textButton('Recently deleted', 'qb-small', () => {
-            this._showTrash = !this._showTrash;
-            this.render(true);
-        });
-        foot.add_child(this._trashBtn);
-        foot.add_child(textButton('Clear completed', 'qb-small', () => this._store.clearCompleted()));
-        page.add_child(foot);
+        const head = box({style_class: 'qb-actions-row'});
+        head.add_child(iconTextButton('qb-chevron-left', 'Matrix', 'qb-small', () => this._setPage('matrix')));
+        head.add_child(label('Recently deleted', 'qb-section-title', {x_expand: true}));
+        page.add_child(head);
+        this._trashList = box({vertical: true, style_class: 'qb-quest-list'});
+        page.add_child(scroll(this._trashList, {y_expand: true}));
         return page;
     }
 
-    _renderQuestsPage(now) {
-        clearChildren(this._questsList);
-        const open = this._store.openQuests();
-        for (const quad of QUADRANTS) {
-            const qs = open.filter(q => q.quadrant === quad.id);
-            if (!qs.length)
-                continue;
-            const head = box({style_class: 'qb-section'});
-            head.add_child(new St.Widget({style_class: `qb-dot qb-${quad.id}`, y_align: Clutter.ActorAlign.CENTER}));
-            head.add_child(label(`${quad.title}  ·  ${qs.length}`, 'qb-section-title'));
-            this._questsList.add_child(head);
-            for (const q of qs)
-                this._questsList.add_child(this._questRow(q, now));
-        }
-        const doneToday = QUADRANTS.flatMap(quad => this._store.visibleQuests(quad.id).filter(q => q.done));
-        if (doneToday.length) {
-            this._questsList.add_child(label(`Completed today · ${doneToday.length}`, 'qb-section-title qb-section-done'));
-            for (const q of doneToday)
-                this._questsList.add_child(this._questRow(q, now, {showDot: true}));
-        }
-        if (!open.length && !doneToday.length)
-            this._questsList.add_child(label('Your quest log is empty. Add quests in the Matrix.', 'qb-empty'));
-        const arch = this._store.archivedCount();
-        this._archiveLabel.text = arch ? `${arch} older completed quest${arch === 1 ? '' : 's'} archived` : '';
-        // quests deleted in the last 30 days: Restore puts them back as they were
+    /** Quests deleted in the last 30 days; Restore puts them back as they were (quadrant, goal, steps, time). */
+    _renderTrashPage() {
+        clearChildren(this._trashList);
         const gone = this._store.deletedQuests();
-        this._trashBtn.label = `Recently deleted (${gone.length})`;
-        if (this._showTrash) {
-            this._questsList.add_child(label(`Recently deleted · ${gone.length}`, 'qb-section-title'));
-            if (!gone.length)
-                this._questsList.add_child(label('Nothing deleted in the last 30 days.', 'qb-muted'));
-            for (const q of gone) {
-                const row = box({style_class: 'qb-history-row'});
-                const days = Math.floor((Date.now() - (q.deletedAt ?? q.updatedAt ?? 0)) / 86400000);
-                row.add_child(label(q.title, 'qb-history-title', {ellipsize: true, x_expand: true}));
-                row.add_child(label(days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`, 'qb-muted'));
-                row.add_child(textButton('Restore', 'qb-small qb-accent', () => this._store.restoreQuest(q.id)));
-                this._questsList.add_child(row);
-            }
+        if (!gone.length)
+            this._trashList.add_child(label('Nothing deleted in the last 30 days.', 'qb-empty'));
+        for (const q of gone) {
+            const row = box({style_class: 'qb-history-row'});
+            const days = Math.floor((Date.now() - (q.deletedAt ?? q.updatedAt ?? 0)) / 86400000);
+            row.add_child(label(q.title, 'qb-history-title', {ellipsize: true, x_expand: true}));
+            row.add_child(label(`${days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`}${q.done ? ' · was done' : ''}`, 'qb-muted'));
+            row.add_child(textButton('Restore', 'qb-small qb-accent', () => this._store.restoreQuest(q.id)));
+            this._trashList.add_child(row);
         }
     }
 
@@ -961,7 +935,7 @@ export class Dashboard {
         switch (this._page) {
         case 'matrix': this._renderMatrix(now); break;
         case 'habits': this.habitsPage.render(); break;
-        case 'quests': this._renderQuestsPage(now); break;
+        case 'trash': this._renderTrashPage(); break;
         case 'timers': this._renderTimersPage(now); break;
         case 'shop': this.shopPage.render(); break;
         case 'detail': this._renderDetail(now); break;
