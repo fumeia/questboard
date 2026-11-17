@@ -42,5 +42,8 @@
   "module_statuses": [
     "Aktuell"
   ],
-  "include_without_module": false
+  "include_without_module": false,
+  "matrix_window_days": 14,
+  "overdue_keep_days": 7,
+  "goal_words": {"astro": "astro", "quanten|\\bqm\\b": "qm", "festk": "festkörperphysik"}
 }

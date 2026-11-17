@@ -8,6 +8,9 @@ Notion page  ->  quest record  `quests/notion.<page id>`
   quadrant    Do first if due within N days / urgent status, else Schedule
               (re-sorted automatically as deadlines approach unless moved by hand)
   xp          by Type (Prüfung 100, …)
+  inMatrix    only sheets close to their deadline (matrix_window_days ahead, overdue_keep_days back); the rest
+              stay in their course goal, where they count toward its progress, but out of the matrix
+  goalId      the open goal whose title names the module (goal_words in notion.json), unless you linked it yourself
 
 Questboard -> Notion: checking/unchecking, renaming and changing the due date
 are written back to the page.
@@ -16,6 +19,7 @@ are written back to the page.
 import datetime as dt
 import json
 import os
+import re
 import threading
 import time
 import urllib.error
@@ -175,6 +179,28 @@ class NotionSync:
             "archived": bool(page.get("archived") or page.get("in_trash")),
         }
 
+    def in_matrix(self, n, q=None):
+        """Only the sheets close to their deadline are in the matrix. A sheet ticked today stays until tomorrow, like any quest."""
+        if n["done"]:
+            return bool(q and q.get("doneAt") and dt.date.fromtimestamp(q["doneAt"] / 1000) == dt.date.today())
+        if n["due"] is None:
+            return True
+        d = days_until(n["due"]["date"])
+        return -int(self.cfg.get("overdue_keep_days", 7)) <= d <= int(self.cfg.get("matrix_window_days", 14))
+
+    def goal_for(self, n):
+        """Id of the open goal this module belongs to (same title rule as the phone's Lernplan), or None."""
+        text = f"{n['module'] or ''} {n['base']}"
+        want = next((g for pat, g in (self.cfg.get("goal_words") or {}).items() if re.search(pat, text, re.I)), None)
+        if not want:
+            return None
+        pat = re.compile(r"(?<![^\W\d_])" + re.escape(want), re.I)
+        with self.srv._lock:
+            rows = self.srv.db().execute("SELECT data FROM records WHERE coll='goals'").fetchall()
+        goals = [json.loads(r[0]) for r in rows]
+        hits = [g for g in goals if not g.get("deleted") and not g.get("done") and pat.search(str(g.get("title", "")))]
+        return max(hits, key=lambda g: g.get("createdAt") or 0)["id"] if hits else None
+
     def quadrant(self, n):
         urgent = n["status"] in self.cfg["urgent_statuses"] or (
             n["due"] is not None and days_until(n["due"]["date"]) <= self.cfg["urgent_within_days"])
@@ -218,13 +244,19 @@ class NotionSync:
             return
 
         if not notion_changed and q:
-            # deadline creeping closer → re-sort, unless the user placed it manually
-            if not q.get("done") and not q.get("quadrantManual"):
-                want = self.quadrant(n)
-                if want != q.get("quadrant"):
-                    upd = {**q, "quadrant": want, "updatedAt": max(now, q["updatedAt"] + 1)}
-                    writes.append(("quests", upd))
-                    self.save_state(pid, n["edited"], upd["updatedAt"])
+            # deadline creeping closer → re-sort and move in/out of the matrix (unless the user placed it manually)
+            ch = {}
+            if not q.get("done") and not q.get("quadrantManual") and self.quadrant(n) != q.get("quadrant"):
+                ch["quadrant"] = self.quadrant(n)
+            if bool(q.get("inMatrix", True)) != self.in_matrix(n, q):
+                ch["inMatrix"] = self.in_matrix(n, q)
+            gid = self.goal_for(n)
+            if gid and gid != q.get("goalId") and q.get("goalId") in (None, q.get("goalAuto")):  # auto links only
+                ch.update(goalId=gid, goalAuto=gid)
+            if ch:
+                upd = {**q, **ch, "updatedAt": max(now, q["updatedAt"] + 1)}
+                writes.append(("quests", upd))
+                self.save_state(pid, n["edited"], upd["updatedAt"])
             return
 
         rec = dict(q or {"id": rid, "createdAt": now, "notes": "", "scheduled": None})
@@ -234,6 +266,10 @@ class NotionSync:
         })
         if not rec.get("quadrantManual"):
             rec["quadrant"] = self.quadrant(n)
+        rec["inMatrix"] = self.in_matrix(n, q)
+        gid = self.goal_for(n)
+        if gid and rec.get("goalId") in (None, rec.get("goalAuto")):  # a goal you chose yourself is kept
+            rec["goalId"] = rec["goalAuto"] = gid
         if n["module"] and not rec.get("topic"):
             rec["topic"] = n["module"]  # course = topic (for stats); a manual topic is kept
         was_done = bool(q and q.get("done"))
