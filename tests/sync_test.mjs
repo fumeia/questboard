@@ -1,5 +1,5 @@
 import assert from 'assert';
-import {Store, levelInfo, habitXp} from './build/store.js';
+import {Store, levelInfo, habitXp, parseDueDate} from './build/store.js';
 const U=process.env.QB_URL, H={Authorization:'Bearer '+process.env.QB_TOKEN,'Content-Type':'application/json'};
 process.env.QB_DIR = process.env.T+'/desk'; const desk = new Store();
 process.env.QB_DIR = process.env.T+'/phone'; const phone = new Store();
@@ -75,7 +75,7 @@ assert(Math.abs(desk.questTimeMs(desk.getQuest(other.id)) - 25 * 60000) < 100, '
 assert(Math.abs(desk.goalProgress(goal.id).ms - 25 * 60000) < 100, 'and for the goal');
 desk.toggleStep(other.id, s1.id); desk.setDone(gq.id, true);
 assert.equal(desk.goalProgress(goal.id).done, 2); assert.equal(desk.goalProgress(goal.id).frac, 1);
-const sg = desk.stats(7).byGoal; assert.equal(sg.length, 1); assert(Math.abs(sg[0].ms - 25 * 60000) < 100, 'time per goal in stats');
+const sg = desk.stats(7).byGoal.filter(g => g.id); assert.equal(sg.length, 1); assert(Math.abs(sg[0].ms - 25 * 60000) < 100, 'time per goal in stats');
 const xpG = desk.xp; desk.setGoalDone(goal.id, true); assert.equal(desk.xp, xpG + 100, 'goal XP');
 await sync(desk); await sync(phone);
 assert.equal(phone.goals().length, 1, 'goal synced'); assert.equal(phone.goalProgress(goal.id).total, 2);
@@ -190,4 +190,16 @@ assert(!only.focusBlocks(k(noon)).some(f => f.id.startsWith('rpgtime.')), 'no fa
   desk.autoBreakMin = 5; const f = desk.startKind('pomodoro', 1, '', null); f.startedAt = Date.now() - 61000;
   desk.tick(); assert(desk.timers.some(x => x.kind === 'break' && x.startedAt), 'a break starts by itself after a Focus');
   for (const x of [...desk.timers]) desk.removeTimer(x.id); desk.autoBreakMin = 0; }
+// due dates typed on the desktop
+{ const t0 = new Date(2026, 10, 18); // Wednesday 18 Nov 2026
+  assert.equal(parseDueDate('24.12.', t0), '2026-12-24'); assert.equal(parseDueDate('24.12.2026', t0), '2026-12-24');
+  assert.equal(parseDueDate('2027-01-15', t0), '2027-01-15'); assert.equal(parseDueDate('+3', t0), '2026-11-21');
+  assert.equal(parseDueDate('3.1.', t0), '2027-01-03', 'a day already past this year means next year');
+  assert.equal(parseDueDate('Fr', t0), '2026-11-20'); assert.equal(parseDueDate('mi', t0), '2026-11-25', 'same weekday = next week');
+  assert.equal(parseDueDate('31.2.', t0), null); assert.equal(parseDueDate('soon', t0), null);
+  assert.equal(parseDueDate('Friday', t0), '2026-11-20'); assert.equal(parseDueDate('Montag', t0), '2026-11-23'); }
+// time per goal accounts for all time: what has no goal is listed as "No goal"
+{ const st = desk.stats(0); const total = st.byGoal.reduce((a, g) => a + g.ms, 0);
+  assert.equal(total, st.focusMs, 'time per goal adds up to all focus time');
+  assert(st.byGoal.some(g => g.title === 'No goal'), 'a No goal row'); }
 console.log('level', levelInfo(desk.xp), 'balance', desk.balance, '\nALL SYNC TESTS PASSED');

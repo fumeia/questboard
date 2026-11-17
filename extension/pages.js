@@ -451,13 +451,15 @@ export class ProgressPage {
         tile('qb-flame', `${st.streak}d`, `streak · best ${st.bestStreak}d`);
         b.add_child(tiles);
 
-        if (st.byGoal.length) {
-            b.add_child(label('Time per goal', 'qb-section-title'));
+        b.add_child(label('Time per goal', 'qb-section-title'));
+        if (!st.byGoal.length)
+            b.add_child(label('No focus time yet. Link quests to goals and start a timer.', 'qb-empty', {wrap: true}));
+        {
             const gTotal = Math.max(1, st.byGoal.reduce((a, g) => a + g.ms, 0));
             for (const g of st.byGoal) {
                 const row = box({vertical: true, style_class: 'qb-topic-row'});
                 const top = box({});
-                top.add_child(label(g.title, 'qb-topic-name', {ellipsize: true, x_expand: true}));
+                top.add_child(label(g.title, g.id ? 'qb-topic-name' : 'qb-muted', {ellipsize: true, x_expand: true}));
                 top.add_child(label(`${fmtDur(g.ms)} · ${Math.round(100 * g.ms / gTotal)} %`, 'qb-muted'));
                 row.add_child(top);
                 const track = new St.Widget({style_class: 'qb-progress-track', x_expand: true});
@@ -487,25 +489,6 @@ export class ProgressPage {
             chart.add_child(col);
         }
         b.add_child(chart);
-
-        // per topic
-        b.add_child(label('Time per topic', 'qb-section-title'));
-        if (!st.byTopic.length)
-            b.add_child(label('No focus time yet. Give quests a topic (quest details) and start a timer.', 'qb-empty', {wrap: true}));
-        const total = Math.max(1, st.byTopic.reduce((a, t) => a + t.ms, 0));
-        for (const t of st.byTopic) {
-            const row = box({vertical: true, style_class: 'qb-topic-row'});
-            const top = box({});
-            top.add_child(label(t.topic, t.topic === 'No topic' ? 'qb-muted' : 'qb-topic-name', {ellipsize: true, x_expand: true}));
-            top.add_child(label(`${fmtDur(t.ms)} · ${Math.round(100 * t.ms / total)} %`, 'qb-muted'));
-            row.add_child(top);
-            const track = new St.Widget({style_class: 'qb-progress-track', x_expand: true});
-            const fill = new St.Widget({style_class: 'qb-topic-fill'});
-            track.add_child(fill);
-            track.connect('notify::width', () => fill.set_width(Math.round(track.width * t.ms / total)));
-            row.add_child(track);
-            b.add_child(row);
-        }
 
         if (st.topQuests.length) {
             b.add_child(label('Most time spent on', 'qb-section-title'));

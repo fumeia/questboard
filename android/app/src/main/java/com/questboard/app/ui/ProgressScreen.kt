@@ -31,6 +31,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.questboard.app.QuestboardApp
+import com.questboard.app.data.NO_GOAL
 import com.questboard.app.data.GOAL_XP
 import com.questboard.app.data.str
 import java.time.LocalDate
@@ -48,7 +49,6 @@ fun ProgressScreen(app: QuestboardApp, v: Int, now: Long) {
     val s = app.store
     var range by remember { mutableIntStateOf(7) }
     val st = remember(v, range) { s.stats(range) }
-    val total = st.byTopic.sumOf { it.second }.coerceAtLeast(1)
     val goals = remember(v) { s.goals() }
     val review = remember(v) { s.weekReview(now) }
     var newGoal by remember { mutableStateOf("") }
@@ -117,24 +117,16 @@ fun ProgressScreen(app: QuestboardApp, v: Int, now: Long) {
                 }
             }
         }
-        if (st.byGoal.isNotEmpty()) {
+        run {
             val gTotal = st.byGoal.sumOf { it.second }.coerceAtLeast(1)
             item { SectionTitle("Time per goal") }
+            if (st.byGoal.isEmpty()) item { Muted("No focus time yet. Link quests to goals and start a timer.", size = 13) }
             items(st.byGoal) { (title, ms) ->
                 Column {
-                    Row { Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                    Row { Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f), color = if (title == NO_GOAL) C.muted else C.text)
                         Muted("${dur(ms)} · ${100 * ms / gTotal} %", size = 12) }
                     Bar(ms.toFloat() / gTotal, C.green, Modifier.fillMaxWidth().padding(top = 3.dp), 5.dp)
                 }
-            }
-        }
-        item { SectionTitle("Time per topic") }
-        if (st.byTopic.isEmpty()) item { Muted("No focus time yet. Give quests a topic and start a timer.", size = 13) }
-        items(st.byTopic) { (topic, ms) ->
-            Column {
-                Row { Text(topic, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f), color = if (topic == "No topic") C.muted else C.text)
-                    Muted("${dur(ms)} · ${100 * ms / total} %", size = 12) }
-                Bar(ms.toFloat() / total, C.accent, Modifier.fillMaxWidth().padding(top = 3.dp), 5.dp)
             }
         }
         if (st.topQuests.isNotEmpty()) {

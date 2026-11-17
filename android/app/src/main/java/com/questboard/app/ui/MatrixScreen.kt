@@ -61,6 +61,7 @@ import com.questboard.app.data.jobj
 import com.questboard.app.data.questXp
 import com.questboard.app.data.str
 import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun MatrixScreen(app: QuestboardApp, v: Int, now: Long) {
@@ -162,13 +163,22 @@ fun QuadrantChips(selected: String, onPick: (String) -> Unit) {
 @Composable
 fun DueChips(selected: String?, onPick: (String?) -> Unit) {
     val today = LocalDate.now()
+    val ctx = LocalContext.current
+    val quick = listOf("Today" to 0L, "Tomorrow" to 1L, "+1 week" to 7L)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Muted("Due", size = 12)
-        for ((label, d) in listOf("Today" to 0L, "Tomorrow" to 1L, "+1 week" to 7L)) {
+        for ((label, d) in quick) {
             val key = dateKey(today.plusDays(d))
             Pill(label, if (selected == key) C.accent else C.card) { onPick(if (selected == key) null else key) }
         }
-        if (selected != null && selected !in (listOf(0L, 1L, 7L).map { dateKey(today.plusDays(it)) })) Pill(selected, C.accent) { onPick(null) }
+        // any date: the system date picker, opening on the current due date (or today)
+        val custom = selected != null && selected !in quick.map { dateKey(today.plusDays(it.second)) }
+        val shown = selected?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+        Pill(if (custom && shown != null) shown.format(DateTimeFormatter.ofPattern("EEE d.M.yyyy")) else "Pick date…", if (custom) C.accent else C.card) {
+            val start = shown ?: today
+            android.app.DatePickerDialog(ctx, { _, y, m, d -> onPick(dateKey(LocalDate.of(y, m + 1, d))) }, start.year, start.monthValue - 1, start.dayOfMonth).show()
+        }
+        if (selected != null) Pill("Clear", C.card) { onPick(null) }
     }
 }
 
@@ -214,7 +224,6 @@ fun QuestSheet(app: QuestboardApp, id: String, v: Int, now: Long, onClose: () ->
                 }
             }
             QuadrantChips(q.str("quadrant")) { s.updateQuest(id, mapOf("quadrant" to it)) }
-            TopicChips(app, q)
             GoalChips(app, q)
             DueChips(q.optJSONObject("due")?.str("date")?.ifEmpty { null }) { d -> s.updateQuest(id, mapOf("due" to d?.let { jobj("date" to it) })) }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -238,22 +247,6 @@ fun QuestSheet(app: QuestboardApp, id: String, v: Int, now: Long, onClose: () ->
             Spacer(Modifier.height(4.dp))
         }
     }
-}
-
-/** Topic / course (for stats). Notion quests get their module automatically. */
-@Composable
-fun TopicChips(app: QuestboardApp, q: org.json.JSONObject) {
-    val id = q.str("id")
-    val current = q.str("topic")
-    var newTopic by remember(id) { mutableStateOf("") }
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Muted("Topic", size = 12)
-        for (t in app.store.topics().take(6))
-            Pill(t, if (t == current) C.accent else C.card) { app.store.updateQuest(id, mapOf("topic" to if (t == current) null else t)) }
-    }
-    OutlinedTextField(newTopic, { newTopic = it }, singleLine = true, placeholder = { Text("New topic / course") },
-        modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-        keyboardActions = KeyboardActions(onDone = { if (newTopic.isNotBlank()) app.store.updateQuest(id, mapOf("topic" to newTopic.trim())); newTopic = "" }))
 }
 
 /** Long-term goal this quest counts toward. */

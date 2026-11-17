@@ -965,9 +965,8 @@ export class Store {
             byTopic.set(topic, (byTopic.get(topic) ?? 0) + s.durationMs);
             if (s.questId)
                 byQuest.set(s.questId, (byQuest.get(s.questId) ?? 0) + s.durationMs);
-            const gid = this._sessionGoal(s, q);
-            if (gid)
-                byGoal.set(gid, (byGoal.get(gid) ?? 0) + s.durationMs);
+            const gid = this._sessionGoal(s, q) ?? '';  // '' = No goal, so all time is accounted for
+            byGoal.set(gid, (byGoal.get(gid) ?? 0) + s.durationMs);
         }
         let xp = 0, questsDone = 0, habitChecks = 0;
         for (const l of this.all('ledger')) {
@@ -1004,7 +1003,7 @@ export class Store {
         return {
             focusMs, xp, questsDone, habitChecks, pomodoros,
             byTopic: [...byTopic.entries()].map(([topic, ms]) => ({topic, ms})).sort((a, b) => b.ms - a.ms),
-            byGoal: [...byGoal.entries()].map(([id, ms]) => ({id, title: this.data.colls.goals[id]?.title ?? '(deleted goal)', ms}))
+            byGoal: [...byGoal.entries()].map(([id, ms]) => ({id, title: id ? this.data.colls.goals[id]?.title ?? '(deleted goal)' : 'No goal', ms}))
                 .sort((a, b) => b.ms - a.ms),
             topQuests: [...byQuest.entries()].map(([id, ms]) => ({id, title: titles(id), ms})).sort((a, b) => b.ms - a.ms).slice(0, 5),
             daily, streak: this.streak(), bestStreak: best,
@@ -1359,4 +1358,41 @@ export class Store {
             this._changed();
         return finished;
     }
+}
+
+/**
+ * A typed due date → "YYYY-MM-DD", or null: "24.12." / "24.12.2026" / "2026-12-24" / "+3" (days from today) /
+ * "mo".."so" or "mon".."sun" (the next such weekday). A day-month without year that already passed this year means next year.
+ */
+export function parseDueDate(text, today = new Date()) {
+    const t = String(text ?? '').trim().toLowerCase();
+    const at = (y, m, d) => {
+        const x = new Date(y, m - 1, d);
+        return x.getFullYear() === y && x.getMonth() === m - 1 && x.getDate() === d ? dateKey(x) : null;
+    };
+    let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (m)
+        return at(+m[1], +m[2], +m[3]);
+    m = t.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})?$/);
+    if (m) {
+        let y = m[3] ? +m[3] : today.getFullYear();
+        if (y < 100)
+            y += 2000;
+        const key = at(y, +m[2], +m[1]);
+        if (key && !m[3] && key < dateKey(today))
+            return at(y + 1, +m[2], +m[1]);
+        return key;
+    }
+    m = t.match(/^\+(\d{1,3})$/);
+    if (m)
+        return dateKey(new Date(today.getFullYear(), today.getMonth(), today.getDate() + +m[1]));
+    // a weekday, German or English, written out or shortened ("fr", "freitag", "fri", "friday"); not just any word starting so
+    const names = [['sonntag', 'sunday'], ['montag', 'monday'], ['dienstag', 'tuesday'], ['mittwoch', 'wednesday'],
+        ['donnerstag', 'thursday'], ['freitag', 'friday'], ['samstag', 'saturday']];
+    const wd = t.length >= 2 ? names.findIndex(ns => ns.some(n => n.startsWith(t))) : -1;
+    if (wd >= 0) {
+        const ahead = ((wd - today.getDay()) + 7) % 7 || 7;
+        return dateKey(new Date(today.getFullYear(), today.getMonth(), today.getDate() + ahead));
+    }
+    return null;
 }

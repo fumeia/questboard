@@ -10,7 +10,7 @@ import St from 'gi://St';
 
 import {CalendarView} from './calendarView.js';
 import {HabitStrip, HabitsPage, ProgressPage, ShopPage} from './pages.js';
-import {QUADRANTS, STEP_XP, dueInDays, groupBonus, levelInfo, questXp} from './store.js';
+import {QUADRANTS, STEP_XP, dueInDays, groupBonus, levelInfo, parseDueDate, questXp} from './store.js';
 import {
     addDays, box, button, clearChildren, dateKey, entry, fmtDate, fmtMinutes, fmtSpent, fmtTimer, gicon, icon, iconButton, iconLabel,
     iconTextButton, label, scroll, textButton,
@@ -500,21 +500,6 @@ export class Dashboard {
         }
         b.add_child(qr);
 
-        // topic / course
-        b.add_child(label('Topic / course', 'qb-section-title'));
-        const tr0 = box({style_class: 'qb-actions-row qb-wrap-row'});
-        for (const t of this._store.topics().slice(0, 6)) {
-            const btn = textButton(t, 'qb-small qb-seg', () => this._store.updateQuest(q.id, {topic: q.topic === t ? null : t}));
-            if (q.topic === t)
-                btn.add_style_pseudo_class('checked');
-            tr0.add_child(btn);
-        }
-        tr0.add_child(entry(q.topic ? 'Rename / new topic' : 'New topic — Enter', 'qb-topic-entry', txt => {
-            if (txt.trim())
-                this._store.updateQuest(q.id, {topic: txt.trim()});
-        }, {x_expand: true}));
-        b.add_child(tr0);
-
         // long-term goal
         b.add_child(label('Goal', 'qb-section-title'));
         const gr = box({style_class: 'qb-actions-row qb-wrap-row'});
@@ -557,6 +542,20 @@ export class Dashboard {
         if (q.due)
             dr.add_child(iconButton('edit-clear-symbolic', 'qb-flat qb-tiny', () => this._store.updateQuest(q.id, {due: null}), 'Clear due date'));
         b.add_child(dr);
+        // any date: typed (24.12. · 24.12.2026 · 2026-12-24 · +3 · Fr), or a day at a time from the current due date
+        const dr2 = box({style_class: 'qb-actions-row'});
+        const base = q.due?.date ? new Date(`${q.due.date}T12:00`) : today;
+        dr2.add_child(textButton('−1 day', 'qb-small', () => this._store.updateQuest(q.id, {due: {date: dateKey(addDays(base, -1))}})));
+        dr2.add_child(textButton('+1 day', 'qb-small', () => this._store.updateQuest(q.id, {due: {date: dateKey(addDays(base, 1))}})));
+        const dueIn = entry('Date: 24.12. · +3 · Fr', 'qb-rename', txt => {
+            const key = parseDueDate(txt);
+            if (key)
+                this._store.updateQuest(q.id, {due: {date: key}});
+            else
+                dueIn.set_text('');
+        }, {x_expand: true});
+        dr2.add_child(dueIn);
+        b.add_child(dr2);
 
         const tr = box({style_class: 'qb-actions-row'});
         const s = q.scheduled;

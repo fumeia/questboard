@@ -37,6 +37,7 @@ const val STEP_XP = 10
 const val GOAL_XP = 100
 fun groupBonus(q: JSONObject) = maxOf(10, Math.round(questXp(q) * 0.5).toInt())
 private const val DAY_MS = 86_400_000L
+const val NO_GOAL = "No goal"
 private const val TOMBSTONE_TTL = 60 * DAY_MS
 
 private val DEFAULT_REWARDS = listOf(
@@ -764,11 +765,13 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
             val topic = s.str("topic").ifEmpty { if (q != null && !q.bool("deleted")) q.str("topic") else "" }.ifEmpty { "No topic" }
             byTopic[topic] = (byTopic[topic] ?: 0) + ms
             if (qid.isNotEmpty()) byQuest[qid] = (byQuest[qid] ?: 0) + ms
+            var gid = ""
             if (q != null && !q.bool("deleted")) {
                 val sid = s.str("stepId")
-                val gid = q.str("goalId").ifEmpty { steps(q).find { it.str("id") == sid && sid.isNotEmpty() }?.str("goalId") ?: "" }
-                if (getGoal(gid) != null) byGoal[gid] = (byGoal[gid] ?: 0) + ms
+                gid = q.str("goalId").ifEmpty { steps(q).find { it.str("id") == sid && sid.isNotEmpty() }?.str("goalId") ?: "" }
+                if (getGoal(gid) == null) gid = ""
             }
+            byGoal[gid] = (byGoal[gid] ?: 0) + ms  // "" = No goal, so all time is accounted for
         }
         var xp = 0; var done = 0; var pomos = 0
         for (l in all("ledger")) {
@@ -786,7 +789,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         }
         val title = { id: String -> colls.getValue("quests")[id]?.takeIf { !it.bool("deleted") }?.str("title") ?: "(deleted quest)" }
         return Stats(focus, xp, done, pomos, byTopic.entries.sortedByDescending { it.value }.map { it.key to it.value },
-            byGoal.entries.sortedByDescending { it.value }.map { (getGoal(it.key)?.str("title") ?: "(deleted goal)") to it.value },
+            byGoal.entries.sortedByDescending { it.value }.map { (if (it.key.isEmpty()) NO_GOAL else getGoal(it.key)?.str("title") ?: "(deleted goal)") to it.value },
             byQuest.entries.sortedByDescending { it.value }.take(5).map { title(it.key) to it.value }, daily, streak(), best)
     }
 
