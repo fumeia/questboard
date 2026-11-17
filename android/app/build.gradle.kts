@@ -20,8 +20,8 @@ android {
         applicationId = "com.questboard.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 21
-        versionName = "0.1.20"
+        versionCode = 22
+        versionName = "0.1.21"
     }
 
     signingConfigs {
