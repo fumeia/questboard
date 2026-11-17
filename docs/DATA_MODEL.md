@@ -44,3 +44,7 @@ ahead) into a quest `cal.<hash of uid|date>` (sessions from 2026-11-06 on: past 
 only on its event and in its goal), `xp: 20`, and `goalId`/`goalAuto` from the title (hardcoded in
 `android/.../sys/Lernplan.kt`: "Astrophysi…" → goal with "Astro", "Quantenmechanik" → "QM", "Festkörperphysik" →
 "Festkörperphysik"). A goal you set by hand wins; a deleted one is not recreated; a vanished event removes its open quest.
+
+**Physics RPG study time:** the game's server pushes sessions `rpgtime.<course>.<date>.<kind>` (kind `rpg`, `questId: rpg.<course>`,
+`topic`, `cat` = what the time went to: derivation, quiz, sheet, exam-hall, drills, mission, … or `other` when the game didn't record it,
+`label` in words). They count as that course quest's time, its goal's time, time per topic and focus; they are not calendar blocks.

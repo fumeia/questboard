@@ -134,6 +134,13 @@ only.applyRemote([{c:'quests',r:{id:'rpg.qm',updatedAt:Date.now()+5,title:'Physi
   progress:{done:1,total:4,text:'1/4 exercises · 0/1 rooms cleared'}}}], 2, {});
 assert.equal(only.extProgress(only.getQuest('rpg.qm')).text, '1/4 exercises · 0/1 rooms cleared');
 assert.equal(only.goalProgress(rg.id).total, 2); assert.equal(only.goalProgress(rg.id).frac, (1 + 0.25) / 2, 'goal share includes the game progress');
+// game study time arrives as sessions on the course quest: quest time, goal time, time per topic
+only.applyRemote([{c:'sessions',r:{id:`rpgtime.qm.${k(noon)}.derivation`,updatedAt:Date.now()+9,questId:'rpg.qm',kind:'rpg',cat:'derivation',
+  label:'derivations',topic:'Quantenmechanik',date:k(noon),start:noon.getTime(),end:noon.getTime()+1800000,durationMs:1800000}}], 3, {});
+assert.equal(only.questTimeMs(only.getQuest('rpg.qm')), 1800000, 'game time on the quest');
+assert.equal(only.goalProgress(rg.id).ms, 1800000, 'and in the goal');
+assert.equal(only.stats(7).byTopic.find(t => t.topic === 'Quantenmechanik').ms, 1800000, 'and in time per topic');
+assert(!only.focusBlocks(k(noon)).some(f => f.id.startsWith('rpgtime.')), 'no fake blocks in the calendar');
 // goal deadlines, pace and the weekly review
 {
     const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
