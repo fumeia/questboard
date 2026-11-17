@@ -544,3 +544,11 @@
 .qb-light .qb-scroll { -st-vfade-offset: 0px; -st-hfade-offset: 0px; }
 .qb-dark .qb-icon-picker-row { spacing: 2px; }
 .qb-light .qb-icon-picker-row { spacing: 2px; }
+.qb-dark .qb-new-timer-box { spacing: 6px; padding: 10px; border-radius: 12px; background-color: rgba(255,255,255,0.05); margin-bottom: 6px; }
+.qb-light .qb-new-timer-box { spacing: 6px; padding: 10px; border-radius: 12px; background-color: rgba(0,0,0,0.045); margin-bottom: 6px; }
+.qb-dark .qb-preset-box { spacing: 6px; padding: 4px 2px 8px 2px; }
+.qb-light .qb-preset-box { spacing: 6px; padding: 4px 2px 8px 2px; }
+.qb-dark .qb-new-min { font-size: 1.5em; }
+.qb-light .qb-new-min { font-size: 1.5em; }
+.qb-dark .qb-timer-name { font-size: 0.9em; }
+.qb-light .qb-timer-name { font-size: 0.9em; }

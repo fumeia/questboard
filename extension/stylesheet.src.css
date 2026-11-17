@@ -357,3 +357,9 @@
 /* no fading at the top and bottom of scrolling lists (it hid the first and last lines) */
 .qb-scroll { -st-vfade-offset: 0px; -st-hfade-offset: 0px; }
 .qb-icon-picker-row { spacing: 2px; }
+
+/* Timers page: new-timer panel and presets */
+.qb-new-timer-box { spacing: 6px; padding: 10px; border-radius: 12px; background-color: rgba(255,255,255,0.05); margin-bottom: 6px; }
+.qb-preset-box { spacing: 6px; padding: 4px 2px 8px 2px; }
+.qb-new-min { font-size: 1.5em; }
+.qb-timer-name { font-size: 0.9em; }

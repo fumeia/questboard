@@ -214,10 +214,14 @@ class NotionSync:
         if n["type"] not in self.cfg["include_types"]:
             return
         st = self.state(pid)
-        if st and st["ignored"]:
-            return
         rid = qid(pid)
         q = self.record("quests", rid)
+        if st and st["ignored"]:
+            if not (q and not q.get("deleted") and not n["archived"]):
+                return
+            # deleted in Questboard, then restored from "Recently deleted": sync it with Notion again
+            self.save_state(pid, st["notion_edited"], st["quest_updated"], ignored=0)
+            st = self.state(pid)
         now = now_ms()
 
         if q and q.get("deleted"):

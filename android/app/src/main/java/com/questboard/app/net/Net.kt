@@ -42,6 +42,18 @@ class Settings(context: Context) {
     var autoUpdate: Boolean get() = p.getBoolean("autoUpdate", true); set(v) = p.edit().putBoolean("autoUpdate", v).apply()
     var pomodoroMin: Int get() = p.getInt("pomodoro", 25); set(v) = p.edit().putInt("pomodoro", v).apply()
     var breakMin: Int get() = p.getInt("break", 5); set(v) = p.edit().putInt("break", v).apply()
+    var countdownMin: Int get() = p.getInt("countdown", 45); set(v) = p.edit().putInt("countdown", v).apply()
+    /** Start a break by itself when a Pomodoro ends (Timers page switch). */
+    var autoBreak: Boolean get() = p.getBoolean("autoBreak", false); set(v) = p.edit().putBoolean("autoBreak", v).apply()
+    /** Saved timers for one-tap start: JSON [{label, kind, min}] (kind pomodoro | break | custom | stopwatch). */
+    var timerPresets: String
+        get() = p.getString("timerPresets", null) ?: DEFAULT_PRESETS
+        set(v) = p.edit().putString("timerPresets", v).apply()
+
+    companion object {
+        const val DEFAULT_PRESETS = "[{\"label\":\"Focus\",\"kind\":\"pomodoro\",\"min\":25},{\"label\":\"Deep work\",\"kind\":\"pomodoro\",\"min\":50}," +
+            "{\"label\":\"Short break\",\"kind\":\"break\",\"min\":5},{\"label\":\"Long break\",\"kind\":\"break\",\"min\":15}]"
+    }
     var dayStartHour: Int get() = p.getInt("dayStart", 8); set(v) = p.edit().putInt("dayStart", v).apply()
     var reminders: Boolean get() = p.getBoolean("reminders", true); set(v) = p.edit().putBoolean("reminders", v).apply()
     var calendarId: Long get() = p.getLong("calendarId", -1); set(v) = p.edit().putLong("calendarId", v).apply()

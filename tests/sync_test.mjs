@@ -134,6 +134,13 @@ only.applyRemote([{c:'quests',r:{id:'rpg.qm',updatedAt:Date.now()+5,title:'Physi
   progress:{done:1,total:4,text:'1/4 exercises · 0/1 rooms cleared'}}}], 2, {});
 assert.equal(only.extProgress(only.getQuest('rpg.qm')).text, '1/4 exercises · 0/1 rooms cleared');
 assert.equal(only.goalProgress(rg.id).total, 2); assert.equal(only.goalProgress(rg.id).frac, (1 + 0.25) / 2, 'goal share includes the game progress');
+// game study time arrives as sessions on the course quest: quest time, goal time, time per topic
+only.applyRemote([{c:'sessions',r:{id:`rpgtime.qm.${k(noon)}.derivation`,updatedAt:Date.now()+9,questId:'rpg.qm',kind:'rpg',cat:'derivation',
+  label:'derivations',topic:'Quantenmechanik',date:k(noon),start:noon.getTime(),end:noon.getTime()+1800000,durationMs:1800000}}], 3, {});
+assert.equal(only.questTimeMs(only.getQuest('rpg.qm')), 1800000, 'game time on the quest');
+assert.equal(only.goalProgress(rg.id).ms, 1800000, 'and in the goal');
+assert.equal(only.stats(7).byTopic.find(t => t.topic === 'Quantenmechanik').ms, 1800000, 'and in time per topic');
+assert(!only.focusBlocks(k(noon)).some(f => f.id.startsWith('rpgtime.')), 'no fake blocks in the calendar');
 // goal deadlines, pace and the weekly review
 {
     const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -166,4 +173,21 @@ assert.equal(only.goalProgress(rg.id).total, 2); assert.equal(only.goalProgress(
   const re = new Store(); assert.equal(re.cursor, 0, 'cursor reset for a full pull');
   const gs = await sync(re); assert(re.goals().length >= 1, 'goals arrive');
   fs.writeFileSync(file, JSON.stringify(re.data)); assert(new Store().cursor > 0, 'only once'); }
+// Recently deleted: a deleted quest keeps its content, can be restored on any device; the restore syncs
+{ const dq = desk.addQuest('Delete me', 'q2'); desk.updateQuest(dq.id, {notes: 'keep this'}); desk.deleteQuest(dq.id);
+  assert(!desk.getQuest(dq.id), 'deleted quest is gone from lists');
+  assert(desk.deletedQuests().some(q => q.id === dq.id && q.notes === 'keep this'), 'listed under Recently deleted with its content');
+  await sync(desk); await sync(phone);
+  assert(phone.deletedQuests().some(q => q.id === dq.id), 'the phone sees it in Recently deleted too');
+  phone.restoreQuest(dq.id); await sync(phone); await sync(desk);
+  assert.equal(desk.getQuest(dq.id)?.notes, 'keep this', 'restored on the phone → back on the desktop, as it was');
+  assert(!desk.deletedQuests().some(q => q.id === dq.id), 'no longer in Recently deleted'); }
+// timers: shorten/extend/rename, presets, break after Focus
+{ const t = desk.startKind('custom', 30, 'Read', null); desk.shortenTimer(t.id, 5 * 60000); assert.equal(t.durationMs, 25 * 60000);
+  desk.shortenTimer(t.id, 60 * 60000); assert(t.durationMs >= 60000 && t.durationMs <= 61000, 'never below what ran + 1 min');
+  desk.renameTimer(t.id, 'Read ch. 3'); assert.equal(t.label, 'Read ch. 3'); desk.removeTimer(t.id);
+  assert(desk.timerPresets.length >= 1); desk.setTimerPresets([{label: 'Sprint', kind: 'pomodoro', min: 15}]); assert.equal(desk.timerPresets[0].label, 'Sprint');
+  desk.autoBreakMin = 5; const f = desk.startKind('pomodoro', 1, '', null); f.startedAt = Date.now() - 61000;
+  desk.tick(); assert(desk.timers.some(x => x.kind === 'break' && x.startedAt), 'a break starts by itself after a Focus');
+  for (const x of [...desk.timers]) desk.removeTimer(x.id); desk.autoBreakMin = 0; }
 console.log('level', levelInfo(desk.xp), 'balance', desk.balance, '\nALL SYNC TESTS PASSED');

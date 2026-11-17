@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -66,6 +67,8 @@ fun MatrixScreen(app: QuestboardApp, v: Int, now: Long) {
     val s = app.store
     var open by remember { mutableStateOf<String?>(null) }
     var adding by remember { mutableStateOf<String?>(null) }
+    var trash by remember { mutableStateOf(false) }
+    val deleted = remember(v) { s.deletedQuests() }
     Column(Modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         HabitStrip(app, v)
         for (row in listOf(listOf(QUADRANTS[0], QUADRANTS[1]), listOf(QUADRANTS[2], QUADRANTS[3]))) {
@@ -95,7 +98,14 @@ fun MatrixScreen(app: QuestboardApp, v: Int, now: Long) {
                 }
             }
         }
+        // deleted by mistake? the last 30 days can be brought back
+        if (deleted.isNotEmpty()) Row(Modifier.fillMaxWidth().clickable { trash = true }.padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            QbIcon("undo", C.muted, 14.dp); HSpace(6.dp)
+            Muted("Recently deleted · ${deleted.size}  (tap to restore)", size = 12)
+        }
     }
+    if (trash) RecentlyDeletedDialog(app, v) { trash = false }
     adding?.let { quad -> AddQuestDialog(app, quad) { adding = null } }
     open?.let { id -> QuestSheet(app, id, v, now) { open = null } }
 }
@@ -313,4 +323,27 @@ fun parseHm(text: String): Int? {
     val h = m.groupValues[1].toInt()
     val min = m.groupValues[2].ifEmpty { "0" }.toInt()
     return if (h in 0..23 && min in 0..59) h * 60 + min else null
+}
+
+/** Quests deleted in the last 30 days, newest first; Restore puts them back where they were (quadrant, goal, steps, time). */
+@Composable
+fun RecentlyDeletedDialog(app: QuestboardApp, v: Int, onClose: () -> Unit) {
+    val list = remember(v) { app.store.deletedQuests() }
+    val now = System.currentTimeMillis()
+    AlertDialog(onDismissRequest = onClose, containerColor = C.surface,
+        title = { Text("Recently deleted") },
+        text = {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (list.isEmpty()) Muted("Nothing deleted in the last 30 days.", size = 13)
+                for (q in list) Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(q.str("title"), fontSize = 14.sp, maxLines = 2)
+                        val days = ((now - q.optLong("deletedAt", q.optLong("updatedAt"))) / 86_400_000L).toInt()
+                        Muted((if (days == 0) "today" else if (days == 1) "yesterday" else "$days days ago") + if (q.optBoolean("done")) " · was done" else "", size = 11)
+                    }
+                    Pill("Restore", C.accent.copy(alpha = 0.5f)) { app.store.restoreQuest(q.str("id")) }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onClose) { Text("Close") } })
 }

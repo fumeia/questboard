@@ -204,7 +204,25 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
 
     private fun del(coll: String, id: String) {
         val old = colls.getValue(coll)[id] ?: return
-        if (!old.bool("deleted")) put(coll, jobj("id" to id, "deleted" to true))
+        if (old.bool("deleted")) return
+        // a deleted quest keeps its content in the deletion marker, so "Recently deleted" can bring it back (same as extension/store.js)
+        put(coll, if (coll == "quests") old.copy().apply { put("deleted", true); put("deletedAt", System.currentTimeMillis()) }
+                  else jobj("id" to id, "deleted" to true))
+    }
+
+    /** Deleted quests that can be restored (newest first). Markers without content (deleted by an older version) can't. */
+    fun deletedQuests(days: Int = 30): List<JSONObject> {
+        val from = System.currentTimeMillis() - days * DAY_MS
+        return colls.getValue("quests").values.filter { it.bool("deleted") && it.has("title") && it.optLong("deletedAt", it.optLong("updatedAt")) >= from }
+            .sortedByDescending { it.optLong("deletedAt", it.optLong("updatedAt")) }
+    }
+
+    @Synchronized
+    fun restoreQuest(id: String) {
+        val r = colls.getValue("quests")[id] ?: return
+        if (!r.bool("deleted") || !r.has("title")) return
+        put("quests", r.copy().apply { remove("deleted"); remove("deletedAt") })
+        changed()
     }
 
     private fun patch(coll: String, id: String, fields: Map<String, Any?>): JSONObject? {
@@ -529,6 +547,24 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         patch("quests", questId, mapOf("steps" to arr))
         changed()
     }
+
+    /** Shorten a countdown, but never below what has already run plus one minute. */
+    fun shortenTimer(id: String, ms: Long) {
+        val t = getTimer(id) ?: return
+        if (t.mode != "countdown" || ms <= 0) return
+        t.durationMs = max(timerElapsed(t, System.currentTimeMillis()) + 60_000L, t.durationMs - ms)
+        changed()
+    }
+
+    fun renameTimer(id: String, label: String) {
+        val t = getTimer(id) ?: return
+        if (label.isBlank()) return
+        t.label = label.trim()
+        changed()
+    }
+
+    /** Minutes of the break that starts by itself when a Pomodoro ends (0 = off). Set from the settings by the app. */
+    var autoBreakMin = 0
 
     /** Extend a running countdown (e.g. "+5 min" from the notification). */
     fun extendTimer(id: String, ms: Long) {
@@ -973,6 +1009,8 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
                 finished += t
             }
         }
+        if (autoBreakMin > 0 && finished.any { it.kind == "pomodoro" })
+            timers.add(0, Timer(uid(), "Break", "countdown", "break", autoBreakMin * 60_000L, null, startedAt = now))
         if (finished.isNotEmpty()) changed()
         return finished
     }
