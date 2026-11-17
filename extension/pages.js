@@ -425,7 +425,7 @@ export class ProgressPage {
         const firstDay = Object.keys(perDay).filter(k => perDay[k] > 0).sort()[0];
         const days = this._range || (firstDay ? Math.round((startOfDay(new Date()) - new Date(`${firstDay}T00:00`)) / 86400000) + 1 : 1);
         const tiles = box({style_class: 'qb-tiles'});
-        for (const [ic, value, caption] of [['qb-stopwatch', fmtDur(st.focusMs), 'focus'], ['qb-sun', fmtDur(st.focusMs / Math.max(1, days)), 'per day'],
+        for (const [ic, value, caption] of [['qb-stopwatch', fmtDur(st.focusMs), 'focus'], ['qb-sun', fmtDur(st.focusMs / Math.max(1, days)), 'avg per day'],
             ['qb-sparkle', String(st.xp), 'XP'], ['qb-check', String(st.questsDone), 'quests done']]) {
             const t = box({vertical: true, style_class: 'qb-tile', x_expand: true});
             t.add_child(iconLabel(ic, value, 'qb-tile-value'));
@@ -505,7 +505,7 @@ export class ProgressPage {
             area.add_child(stack);
             col.add_child(area);
             const day = new Date(`${d.date}T12:00`);
-            col.add_child(label(week ? fmtDate(day, '%a').slice(0, 2) : (i % 5 === 4 || i === bars.length - 1 ? `${day.getDate()}.` : ''),
+            col.add_child(label(week ? fmtDate(day, '%a').slice(0, 2) : (i % 5 === 4 || i === bars.length - 1 ? String(day.getDate()) : ''),
                 'qb-chart-day', {x_align: Clutter.ActorAlign.CENTER}));
             chart.add_child(button({style_class: 'qb-chart-btn', child: col, x_expand: true}, () => {
                 this._picked = this._picked === d.date ? null : d.date;

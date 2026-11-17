@@ -1,6 +1,7 @@
 package com.questboard.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.IntrinsicSize
 import com.questboard.app.data.dateKey
 import com.questboard.app.data.Store
 import androidx.compose.ui.graphics.Color
@@ -66,15 +67,15 @@ fun ProgressScreen(app: QuestboardApp, v: Int, now: Long) {
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Text("This week", fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.padding(top = 10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 6.dp)) {
+            Row(Modifier.padding(top = 6.dp).height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 for ((icon, value, caption) in listOf(
                     Triple("stopwatch", dur(review.focusThis), "focus · was ${dur(review.focusPrev)}"),
                     Triple("check", "${review.questsThis}", "quests · was ${review.questsPrev}"),
                     Triple("star", "${review.goalsReached}", "goals reached"),
                     Triple("flame", "${review.streak}d", "streak"),
-                )) Column(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(C.card).padding(8.dp)) {
+                )) Column(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(10.dp)).background(C.card).padding(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) { QbIcon(icon, C.muted, 13.dp); HSpace(4.dp)
-                        Text(value, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp) }
+                        Text(value, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, maxLines = 1, softWrap = false) }
                     Muted(caption, size = 10)
                 }
             }
@@ -130,14 +131,14 @@ private fun StatsBlock(app: QuestboardApp, v: Int) {
         val perDay = remember(v, range) { s.focusPerDay() }
         val days = if (range > 0) range else perDay.keys.filter { (perDay[it] ?: 0) > 0 }.minOrNull()
             ?.let { (java.time.temporal.ChronoUnit.DAYS.between(LocalDate.parse(it), LocalDate.now()) + 1).toInt() } ?: 1
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        // equal tiles: caption with its icon on top, the number below on one line (long times no longer wrap)
+        Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             for ((icon, value, caption) in listOf(
-                Triple("stopwatch", dur(st.focusMs), "focus"), Triple("sun", dur(st.focusMs / days.coerceAtLeast(1)), "per day"),
+                Triple("stopwatch", dur(st.focusMs), "focus"), Triple("sun", dur(st.focusMs / days.coerceAtLeast(1)), "avg per day"),
                 Triple("sparkle", "${st.xp}", "XP"), Triple("check", "${st.questsDone}", "quests done"),
-            )) Column(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(C.card).padding(8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) { QbIcon(icon, C.muted, 13.dp); HSpace(4.dp)
-                    Text(value, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp) }
-                Muted(caption, size = 11)
+            )) Column(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(10.dp)).background(C.card).padding(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) { QbIcon(icon, C.muted, 12.dp); HSpace(3.dp); Muted(caption, size = 10) }
+                Text(value, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, maxLines = 1, softWrap = false, modifier = Modifier.padding(top = 2.dp))
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -190,7 +191,8 @@ private fun GoalBars(bars: List<Store.DayGoals>, order: List<String>, week: Bool
         bars.forEachIndexed { i, d ->
             Column(Modifier.weight(1f).fillMaxHeight().clickable { onPick(d.date) }, horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Bottom) {
-                if (week && d.total > 0) Muted(dur(d.total), size = 9)
+                if (week) Box(Modifier.height(12.dp)) { if (d.total > 0) Text(dur(d.total), fontSize = 9.sp, color = C.muted, maxLines = 1, softWrap = false,
+                    modifier = Modifier.wrapContentWidth(Alignment.CenterHorizontally, unbounded = true)) }
                 Column(Modifier.fillMaxWidth().height((90f * d.total / max).coerceAtLeast(if (d.total > 0) 3f else 1f).dp)
                     .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
                     .background(if (d.total == 0L) C.line else Color.Transparent)
@@ -198,9 +200,14 @@ private fun GoalBars(bars: List<Store.DayGoals>, order: List<String>, week: Bool
                     // first goal at the bottom, like a stack
                     for ((gid, ms) in d.parts.reversed()) Box(Modifier.fillMaxWidth().weight(ms.toFloat().coerceAtLeast(1f)).background(goalColor(order, gid)))
                 }
+                // fixed-height label line: every bar stands on the same baseline; day numbers may be wider than a thin bar
                 val date = LocalDate.parse(d.date)
-                Muted(if (week) date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).take(2)
-                      else if (i % 5 == 4 || i == bars.lastIndex) "${date.dayOfMonth}." else "", size = if (week) 11 else 9)
+                Box(Modifier.height(16.dp).padding(top = 2.dp)) {
+                    Text(if (week) date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).take(2)
+                         else if (i % 5 == 4 || i == bars.lastIndex) "${date.dayOfMonth}" else "",
+                        fontSize = if (week) 11.sp else 9.sp, color = C.muted, maxLines = 1, softWrap = false,
+                        modifier = Modifier.wrapContentWidth(Alignment.CenterHorizontally, unbounded = true))
+                }
             }
         }
     }
