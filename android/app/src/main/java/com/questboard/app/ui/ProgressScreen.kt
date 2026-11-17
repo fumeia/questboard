@@ -186,13 +186,16 @@ private fun StatsBlock(app: QuestboardApp, v: Int) {
 @Composable
 private fun GoalBars(bars: List<Store.DayGoals>, order: List<String>, week: Boolean, picked: String?, onPick: (String) -> Unit) {
     val max = bars.maxOfOrNull { it.total }?.coerceAtLeast(1) ?: 1
-    Row(Modifier.fillMaxWidth().height(if (week) 150.dp else 130.dp).clip(RoundedCornerShape(10.dp)).background(C.card).padding(8.dp),
+    Row(Modifier.fillMaxWidth().height(if (week) 160.dp else 134.dp).clip(RoundedCornerShape(10.dp)).background(C.card).padding(8.dp),
         horizontalArrangement = Arrangement.spacedBy(if (week) 6.dp else 2.dp), verticalAlignment = Alignment.Bottom) {
         bars.forEachIndexed { i, d ->
             Column(Modifier.weight(1f).fillMaxHeight().clickable { onPick(d.date) }, horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Bottom) {
-                if (week) Box(Modifier.height(12.dp)) { if (d.total > 0) Text(dur(d.total), fontSize = 9.sp, color = C.muted, maxLines = 1, softWrap = false,
-                    modifier = Modifier.wrapContentWidth(Alignment.CenterHorizontally, unbounded = true)) }
+                // its own line above the bar, tall enough for the text (it used to spill into the bar)
+                if (week) Box(Modifier.height(16.dp), contentAlignment = Alignment.BottomCenter) {
+                    if (d.total > 0) Text(dur(d.total), fontSize = 9.sp, lineHeight = 11.sp, color = C.muted, maxLines = 1, softWrap = false,
+                        modifier = Modifier.wrapContentWidth(Alignment.CenterHorizontally, unbounded = true).padding(bottom = 2.dp))
+                }
                 Column(Modifier.fillMaxWidth().height((90f * d.total / max).coerceAtLeast(if (d.total > 0) 3f else 1f).dp)
                     .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
                     .background(if (d.total == 0L) C.line else Color.Transparent)
@@ -202,10 +205,10 @@ private fun GoalBars(bars: List<Store.DayGoals>, order: List<String>, week: Bool
                 }
                 // fixed-height label line: every bar stands on the same baseline; day numbers may be wider than a thin bar
                 val date = LocalDate.parse(d.date)
-                Box(Modifier.height(16.dp).padding(top = 2.dp)) {
+                Box(Modifier.height(if (week) 20.dp else 16.dp).padding(top = 3.dp), contentAlignment = Alignment.TopCenter) {
                     Text(if (week) date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).take(2)
                          else if (i % 5 == 4 || i == bars.lastIndex) "${date.dayOfMonth}" else "",
-                        fontSize = if (week) 11.sp else 9.sp, color = C.muted, maxLines = 1, softWrap = false,
+                        fontSize = if (week) 11.sp else 9.sp, lineHeight = if (week) 13.sp else 11.sp, color = C.muted, maxLines = 1, softWrap = false,
                         modifier = Modifier.wrapContentWidth(Alignment.CenterHorizontally, unbounded = true))
                 }
             }
