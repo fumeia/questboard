@@ -15,4 +15,5 @@ for i in $(seq 30); do curl -sf $QB_URL/api/health >/dev/null && break; python3 
 QB_DIR=$T node sync_test.mjs
 # 2) Notion two-way sync against a mock Notion API
 mkdir -p $T/notion && python3 notion_test.py ../server $T/notion 2>&1 | grep -v '^INFO'
+python3 notion_matrix_test.py
 rm -rf build
