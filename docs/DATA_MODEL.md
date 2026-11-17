@@ -2,7 +2,8 @@
 
 Implemented identically in `extension/store.js` and `android/.../data/Store.kt`; the server stores records
 opaquely. Every record: `{id, updatedAt (ms), deleted?: true, ...}`. Merge = **last writer wins per record**
-(higher `updatedAt`; server breaks ties by content). Deletions are tombstones `{id, deleted:true}`, pruned after 60 days.
+(higher `updatedAt`; server breaks ties by content). Deletions are tombstones `{id, deleted:true}`, pruned after 60 days; a deleted **quest** keeps its content in the
+tombstone (`deletedAt` added), so "Recently deleted" can restore it for 30 days (restore = the record without `deleted`).
 
 | Collection | Fields | Notes |
 |---|---|---|

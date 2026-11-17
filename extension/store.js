@@ -261,8 +261,27 @@ export class Store {
     }
 
     _del(coll, id) {
-        if (this.data.colls[coll][id] && !this.data.colls[coll][id].deleted)
-            this._put(coll, {id, deleted: true});
+        const old = this.data.colls[coll][id];
+        if (!old || old.deleted)
+            return;
+        // a deleted quest keeps its content in the deletion marker, so "Recently deleted" can bring it back (same as Store.kt)
+        this._put(coll, coll === 'quests' ? {...old, deleted: true, deletedAt: Date.now()} : {id, deleted: true});
+    }
+
+    /** Deleted quests that can be restored (newest first). Markers without content (deleted by an older version) can't. */
+    deletedQuests(days = 30) {
+        const from = Date.now() - days * 86400000;
+        const at = q => q.deletedAt ?? q.updatedAt ?? 0;
+        return Object.values(this.data.colls.quests).filter(q => q.deleted && q.title && at(q) >= from).sort((a, b) => at(b) - at(a));
+    }
+
+    restoreQuest(id) {
+        const r = this.data.colls.quests[id];
+        if (!r || !r.deleted || !r.title)
+            return;
+        const {deleted: _d, deletedAt: _a, ...rest} = r;
+        this._put('quests', rest);
+        this._changed();
     }
 
     _patch(coll, id, patch) {
@@ -642,6 +661,51 @@ export class Store {
     }
 
     /** Extend a running countdown (e.g. "+5 min" from the notification). */
+    /** Shorten a countdown, but never below what has already run plus one minute. */
+    shortenTimer(id, ms) {
+        const t = this.data.timers.find(x => x.id === id);
+        if (!t || t.mode !== 'countdown' || !(ms > 0))
+            return;
+        t.durationMs = Math.max(this.timerElapsed(t) + 60000, t.durationMs - ms);
+        this._changed();
+    }
+
+    renameTimer(id, label) {
+        const t = this.data.timers.find(x => x.id === id);
+        if (!t || !String(label ?? '').trim())
+            return;
+        t.label = String(label).trim();
+        this._changed();
+    }
+
+    // Timer presets (one-tap start) and the automatic break: device-local, kept in data.json
+    get timerPresets() {
+        return this.data.timerPresets ?? [{label: 'Focus', kind: 'pomodoro', min: 25}, {label: 'Deep work', kind: 'pomodoro', min: 50},
+            {label: 'Short break', kind: 'break', min: 5}, {label: 'Long break', kind: 'break', min: 15}];
+    }
+
+    setTimerPresets(list) {
+        this.data.timerPresets = list;
+        this._changed();
+    }
+
+    /** Start any timer the same way (Focus = Pomodoro with +10 XP, Break, Countdown, Stopwatch). */
+    startKind(kind, minutes, label = '', questId = null) {
+        const l = String(label ?? '').trim() || undefined;
+        if (kind === 'pomodoro')
+            return l ? this.addTimer({mode: 'countdown', kind: 'pomodoro', durationMs: minutes * 60000, questId, label: l}) : this.startPomodoro(questId, minutes);
+        if (kind === 'break')
+            return this.addTimer({mode: 'countdown', kind: 'break', durationMs: minutes * 60000, label: l ?? 'Break'});
+        if (kind === 'stopwatch')
+            return this.addTimer({mode: 'stopwatch', kind: 'stopwatch', durationMs: 0, questId, label: l});
+        return this.addTimer({mode: 'countdown', kind: 'custom', durationMs: minutes * 60000, questId, label: l});
+    }
+
+    /** Minutes of the break that starts by itself when a Pomodoro ends (0 = off; set from the settings). */
+    set autoBreakMin(m) {
+        this._autoBreakMin = m | 0;
+    }
+
     extendTimer(id, ms) {
         const t = this.getTimer(id);
         if (!t || t.mode !== 'countdown' || !(ms > 0))
@@ -1288,6 +1352,9 @@ export class Store {
                 finished.push(t);
             }
         }
+        if (this._autoBreakMin > 0 && finished.some(t => t.kind === 'pomodoro'))
+            this.data.timers.unshift({id: uid(), label: 'Break', mode: 'countdown', kind: 'break', durationMs: this._autoBreakMin * 60000,
+                questId: null, stepId: null, elapsedMs: 0, startedAt: now, finished: false});
         if (finished.length)
             this._changed();
         return finished;

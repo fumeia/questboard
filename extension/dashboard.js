@@ -597,6 +597,11 @@ export class Dashboard {
         const foot = box({style_class: 'qb-page-foot'});
         this._archiveLabel = label('', 'qb-muted', {x_expand: true});
         foot.add_child(this._archiveLabel);
+        this._trashBtn = textButton('Recently deleted', 'qb-small', () => {
+            this._showTrash = !this._showTrash;
+            this.render(true);
+        });
+        foot.add_child(this._trashBtn);
         foot.add_child(textButton('Clear completed', 'qb-small', () => this._store.clearCompleted()));
         page.add_child(foot);
         return page;
@@ -626,47 +631,191 @@ export class Dashboard {
             this._questsList.add_child(label('Your quest log is empty. Add quests in the Matrix.', 'qb-empty'));
         const arch = this._store.archivedCount();
         this._archiveLabel.text = arch ? `${arch} older completed quest${arch === 1 ? '' : 's'} archived` : '';
+        // quests deleted in the last 30 days: Restore puts them back as they were
+        const gone = this._store.deletedQuests();
+        this._trashBtn.label = `Recently deleted (${gone.length})`;
+        if (this._showTrash) {
+            this._questsList.add_child(label(`Recently deleted · ${gone.length}`, 'qb-section-title'));
+            if (!gone.length)
+                this._questsList.add_child(label('Nothing deleted in the last 30 days.', 'qb-muted'));
+            for (const q of gone) {
+                const row = box({style_class: 'qb-history-row'});
+                const days = Math.floor((Date.now() - (q.deletedAt ?? q.updatedAt ?? 0)) / 86400000);
+                row.add_child(label(q.title, 'qb-history-title', {ellipsize: true, x_expand: true}));
+                row.add_child(label(days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`, 'qb-muted'));
+                row.add_child(textButton('Restore', 'qb-small qb-accent', () => this._store.restoreQuest(q.id)));
+                this._questsList.add_child(row);
+            }
+        }
     }
 
     // ---- timers page -----------------------------------------------------
 
     _buildTimersPage() {
         const page = box({vertical: true, style_class: 'qb-page', x_expand: true, y_expand: true});
-        const bar = box({style_class: 'qb-new-timer'});
-        bar.add_child(iconTextButton('qb-target', 'Pomodoro', 'qb-small qb-accent', () =>
-            this._store.startPomodoro(this._newTimerQuest, this._settings.get_int('pomodoro-minutes'))));
-        bar.add_child(iconTextButton('qb-coffee', 'Break', 'qb-small', () => this._store.startBreak(this._settings.get_int('break-minutes'))));
-        bar.add_child(iconTextButton('qb-stopwatch', 'Stopwatch', 'qb-small', () =>
-            this._store.addTimer({mode: 'stopwatch', kind: 'stopwatch', durationMs: 0, questId: this._newTimerQuest})));
-        const addCustom = (text, e) => {
-            const m = parseFloat(text);
-            if (!(m > 0))
-                return;
-            this._store.addTimer({mode: 'countdown', kind: 'custom', durationMs: Math.round(m * 60000), questId: this._newTimerQuest});
-            e.set_text('');
-        };
-        const mins = entry('min', 'qb-mins', addCustom);
-        bar.add_child(mins);
-        bar.add_child(iconButton('qb-plus', 'qb-flat', () => addCustom(mins.get_text(), mins), 'Add countdown'));
-        page.add_child(bar);
-
+        this._tKind = 'pomodoro';
+        this._tMin = null;
+        // everything scrolls together: the new-timer panel, presets, then the timers
+        const body = box({vertical: true, style_class: 'qb-timer-list'});
+        this._newTimerBox = box({vertical: true, style_class: 'qb-new-timer-box'});
+        body.add_child(this._newTimerBox);
         this._newLinkRow = box({vertical: true, style_class: 'qb-link-row'});
-        page.add_child(this._newLinkRow);
+        body.add_child(this._newLinkRow);
+        this._presetBox = box({vertical: true, style_class: 'qb-preset-box'});
+        body.add_child(this._presetBox);
         this._timersList = box({vertical: true, style_class: 'qb-timer-list'});
-        page.add_child(scroll(this._timersList, {y_expand: true}));
+        body.add_child(this._timersList);
+        page.add_child(scroll(body, {y_expand: true}));
         return page;
+    }
+
+    _kindMinutes(kind) {
+        if (kind === 'pomodoro')
+            return this._settings.get_int('pomodoro-minutes');
+        if (kind === 'break')
+            return this._settings.get_int('break-minutes');
+        return this._store.data.countdownMin ?? 45;
+    }
+
+    _setKindMinutes(m) {
+        m = Math.max(1, Math.min(600, Math.round(m)));
+        this._tMin = m;
+        if (this._tKind === 'pomodoro' && m <= 180)
+            this._settings.set_int('pomodoro-minutes', m);
+        else if (this._tKind === 'break' && m <= 60)
+            this._settings.set_int('break-minutes', m);
+        else if (this._tKind === 'custom')
+            this._store.data.countdownMin = m;
+        this.render(true);
+    }
+
+    /** New timer: kind, minutes (−5 −1 +1 +5, quick picks, or typed), optional label, quest; presets; break after Focus. */
+    _renderNewTimer() {
+        const KINDS = [['pomodoro', 'Focus'], ['break', 'Break'], ['custom', 'Countdown'], ['stopwatch', 'Stopwatch']];
+        const nb = this._newTimerBox;
+        clearChildren(nb);
+        const min = this._tMin ?? this._kindMinutes(this._tKind);
+        const kinds = box({style_class: 'qb-actions-row'});
+        for (const [k, name] of KINDS) {
+            const b = textButton(name, 'qb-small', () => {
+                this._tKind = k;
+                this._tMin = null;
+                this.render(true);
+            });
+            if (k === this._tKind)
+                b.add_style_pseudo_class('checked');
+            kinds.add_child(b);
+        }
+        nb.add_child(kinds);
+        if (this._tKind !== 'stopwatch') {
+            const r = box({style_class: 'qb-actions-row'});
+            for (const [txt, d] of [['−5', -5], ['−1', -1]])
+                r.add_child(textButton(txt, 'qb-small', () => this._setKindMinutes(min + d)));
+            r.add_child(label(`${min} min`, 'qb-timer-time qb-new-min', {x_expand: true, x_align: Clutter.ActorAlign.CENTER}));
+            for (const [txt, d] of [['+1', 1], ['+5', 5]])
+                r.add_child(textButton(txt, 'qb-small', () => this._setKindMinutes(min + d)));
+            r.add_child(entry('min', 'qb-mins', t => {
+                const m = parseFloat(t);
+                if (m > 0)
+                    this._setKindMinutes(m);
+            }));
+            nb.add_child(r);
+            // quick picks in short rows (one long row would push the calendar out of the popup)
+            for (const row of [[5, 10, 15, 25, 30], [45, 50, 60, 90]]) {
+                const q = box({style_class: 'qb-actions-row'});
+                for (const m of row) {
+                    const b = textButton(String(m), 'qb-small qb-dur', () => this._setKindMinutes(m));
+                    if (m === min)
+                        b.add_style_pseudo_class('checked');
+                    q.add_child(b);
+                }
+                nb.add_child(q);
+            }
+        }
+        const kindName = KINDS.find(k => k[0] === this._tKind)[1];
+        const lbl = entry(this._tKind === 'break' ? 'Break' : 'Label (optional, else the quest\'s name)', 'qb-rename', () => start(), {x_expand: true});
+        const start = () => {
+            this._store.startKind(this._tKind, min, lbl.get_text(), this._tKind === 'break' ? null : this._newTimerQuest);
+            lbl.set_text('');
+        };
+        nb.add_child(lbl);
+        const act = box({style_class: 'qb-actions-row'});
+        act.add_child(textButton(`Start ${kindName.toLowerCase()}${this._tKind === 'stopwatch' ? '' : ` · ${min} min`}`, 'qb-small qb-accent', start));
+        act.add_child(new St.Widget({x_expand: true}));
+        act.add_child(textButton('Save as preset', 'qb-small', () => {
+            const name = lbl.get_text().trim() || kindName;
+            this._store.setTimerPresets([...this._store.timerPresets, {label: name, kind: this._tKind, min: this._tKind === 'stopwatch' ? 0 : min}]);
+        }));
+        nb.add_child(act);
+        const auto = !!this._store.data.autoBreak;
+        const ab = box({style_class: 'qb-actions-row'});
+        ab.add_child(label(`Break after each Focus (${this._settings.get_int('break-minutes')} min, starts by itself)`, 'qb-muted', {x_expand: true, ellipsize: true}));
+        ab.add_child(textButton(auto ? 'On' : 'Off', auto ? 'qb-small qb-accent' : 'qb-small', () => {
+            this._store.data.autoBreak = !auto;
+            this._store.autoBreakMin = !auto ? this._settings.get_int('break-minutes') : 0;
+            this.render(true);
+        }));
+        nb.add_child(ab);
+
+        // presets: one click starts (with the quest chosen below)
+        const pb = this._presetBox;
+        clearChildren(pb);
+        const head = box({style_class: 'qb-actions-row'});
+        head.add_child(label('Presets', 'qb-section-title', {x_expand: true}));
+        const presets = this._store.timerPresets;
+        if (presets.length)
+            head.add_child(textButton(this._editPresets ? 'Done' : 'Edit', 'qb-small', () => {
+                this._editPresets = !this._editPresets;
+                this.render(true);
+            }));
+        pb.add_child(head);
+        if (!presets.length)
+            pb.add_child(label('Set up a timer above and click “Save as preset”.', 'qb-muted', {wrap: true}));
+        let row = null;
+        presets.forEach((p, i) => {
+            if (i % 3 === 0) {
+                row = box({style_class: 'qb-actions-row'});
+                pb.add_child(row);
+            }
+            const txt = `${p.label}${p.kind === 'stopwatch' ? '' : ` · ${p.min}m`}`;
+            row.add_child(this._editPresets
+                ? textButton(`✕ ${txt}`, 'qb-small qb-danger', () => this._store.setTimerPresets(presets.filter((_, j) => j !== i)))
+                : textButton(txt, 'qb-small', () => this._store.startKind(p.kind, p.min, p.label, p.kind === 'break' ? null : this._newTimerQuest)));
+        });
     }
 
     questPicker(currentId, onPick) {
         const p = box({vertical: true, style_class: 'qb-picker'});
+        // search filters the rows in place (no re-render, so typing keeps the focus); at most 12 shown
+        const search = entry('Search quests', 'qb-rename', () => {}, {x_expand: true});
+        p.add_child(search);
         p.add_child(textButton('No quest', currentId ? 'qb-pick' : 'qb-pick checked', () => onPick(null)));
+        const rows = [];
         for (const q of this._store.openQuests()) {
             const inner = box({});
             inner.add_child(new St.Widget({style_class: `qb-dot qb-${q.quadrant}`, y_align: Clutter.ActorAlign.CENTER}));
             inner.add_child(label(q.title, '', {ellipsize: true, x_expand: true}));
-            p.add_child(button({style_class: q.id === currentId ? 'qb-btn qb-pick checked' : 'qb-btn qb-pick', child: inner, x_expand: true},
-                () => onPick(q.id), 'pick'));
+            const b = button({style_class: q.id === currentId ? 'qb-btn qb-pick checked' : 'qb-btn qb-pick', child: inner, x_expand: true},
+                () => onPick(q.id), 'pick');
+            rows.push([q.title.toLowerCase(), b]);
+            p.add_child(b);
         }
+        const more = label('', 'qb-muted');
+        p.add_child(more);
+        const filter = () => {
+            const t = search.get_text().trim().toLowerCase();
+            let n = 0;
+            for (const [title, b] of rows) {
+                b.visible = (!t || title.includes(t)) && n < 12;
+                if (b.visible)
+                    n++;
+            }
+            const hidden = rows.length - n;
+            more.text = hidden > 0 ? `${hidden} more: type to search` : '';
+            more.visible = hidden > 0;
+        };
+        search.clutter_text.connect('text-changed', filter);
+        filter();
         return p;
     }
 
@@ -684,6 +833,7 @@ export class Dashboard {
     }
 
     _renderTimersPage(now) {
+        this._renderNewTimer();
         clearChildren(this._newLinkRow);
         if (this._newTimerQuest && !this._store.getQuest(this._newTimerQuest))
             this._newTimerQuest = null;
@@ -703,7 +853,7 @@ export class Dashboard {
         this._timerWidgets.clear();
         const timers = this._store.timers;
         if (!timers.length) {
-            this._timersList.add_child(label('No timers yet. Start a Pomodoro, or press play on any quest.', 'qb-empty', {wrap: true}));
+            this._timersList.add_child(label('No timers yet. Start one above, or press play on any quest.', 'qb-empty', {wrap: true}));
             return;
         }
         for (const t of timers)
@@ -724,7 +874,8 @@ export class Dashboard {
 
         const meta = box({vertical: true, x_expand: true, y_align: Clutter.ActorAlign.CENTER});
         const kindText = {pomodoro: 'Pomodoro', break: 'Break', stopwatch: 'Stopwatch', custom: 'Countdown'}[t.kind] ?? 'Timer';
-        meta.add_child(label(t.finished ? `${kindText} · done` : kindText, 'qb-timer-kind'));
+        meta.add_child(label(t.finished ? `${kindText} · done` : running ? kindText : `${kindText} · paused`, 'qb-timer-kind'));
+        meta.add_child(entry('Name', 'qb-rename qb-timer-name', txt => this._store.renameTimer(t.id, txt), {text: t.label ?? '', x_expand: true}));
         if (t.kind !== 'break')
             meta.add_child(this._linkButton(t.questId, t.id));
         top.add_child(meta);
@@ -741,6 +892,14 @@ export class Dashboard {
             bar = new St.Widget({style_class: 'qb-timer-fill'});
             track.add_child(bar);
             card.add_child(track);
+        }
+
+        if (t.mode === 'countdown' && !t.finished) {
+            const adj = box({style_class: 'qb-actions-row'});
+            adj.add_child(textButton('−5 min', 'qb-small', () => this._store.shortenTimer(t.id, 5 * 60000)));
+            adj.add_child(textButton('+5 min', 'qb-small', () => this._store.extendTimer(t.id, 5 * 60000)));
+            adj.add_child(textButton('+15 min', 'qb-small', () => this._store.extendTimer(t.id, 15 * 60000)));
+            card.add_child(adj);
         }
 
         if (t.finished && t.kind === 'pomodoro') {

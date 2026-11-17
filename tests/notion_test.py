@@ -69,4 +69,10 @@ assert get("quests", "notion.p1")["quadrant"] == "q3"
 # 4) deleted in Questboard → ignored, not recreated
 srv.do_sync({"device": "desk", "changes": [{"c": "quests", "r": {"id": "notion.p2", "deleted": True, "updatedAt": 9e12}}]}, "x")
 ns.last_full = 0; ns.poll(); assert get("quests", "notion.p2")["deleted"]
+# 5) restored from "Recently deleted" → synced with Notion again (an edit in Questboard reaches Notion)
+r = dict(get("quests", "notion.p2")); r.pop("deleted", None); r.update(title="Analysis II · Endprüfung (Restored)", done=False, updatedAt=9e12 + 10)
+srv.do_sync({"device": "phone", "changes": [{"c": "quests", "r": r}]}, "x")
+ns.last_full = 0; ns.poll(); ns.last_full = 0; ns.poll()
+assert not get("quests", "notion.p2").get("deleted"), "restored quest stays"
+assert any(pid == "p2" and "Titel" in body["properties"] for pid, body in PATCHES), "restored quest syncs with Notion again"
 print("patches:", len(PATCHES)); print("ALL NOTION TESTS PASSED")

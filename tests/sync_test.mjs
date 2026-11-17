@@ -173,4 +173,21 @@ assert(!only.focusBlocks(k(noon)).some(f => f.id.startsWith('rpgtime.')), 'no fa
   const re = new Store(); assert.equal(re.cursor, 0, 'cursor reset for a full pull');
   const gs = await sync(re); assert(re.goals().length >= 1, 'goals arrive');
   fs.writeFileSync(file, JSON.stringify(re.data)); assert(new Store().cursor > 0, 'only once'); }
+// Recently deleted: a deleted quest keeps its content, can be restored on any device; the restore syncs
+{ const dq = desk.addQuest('Delete me', 'q2'); desk.updateQuest(dq.id, {notes: 'keep this'}); desk.deleteQuest(dq.id);
+  assert(!desk.getQuest(dq.id), 'deleted quest is gone from lists');
+  assert(desk.deletedQuests().some(q => q.id === dq.id && q.notes === 'keep this'), 'listed under Recently deleted with its content');
+  await sync(desk); await sync(phone);
+  assert(phone.deletedQuests().some(q => q.id === dq.id), 'the phone sees it in Recently deleted too');
+  phone.restoreQuest(dq.id); await sync(phone); await sync(desk);
+  assert.equal(desk.getQuest(dq.id)?.notes, 'keep this', 'restored on the phone → back on the desktop, as it was');
+  assert(!desk.deletedQuests().some(q => q.id === dq.id), 'no longer in Recently deleted'); }
+// timers: shorten/extend/rename, presets, break after Focus
+{ const t = desk.startKind('custom', 30, 'Read', null); desk.shortenTimer(t.id, 5 * 60000); assert.equal(t.durationMs, 25 * 60000);
+  desk.shortenTimer(t.id, 60 * 60000); assert(t.durationMs >= 60000 && t.durationMs <= 61000, 'never below what ran + 1 min');
+  desk.renameTimer(t.id, 'Read ch. 3'); assert.equal(t.label, 'Read ch. 3'); desk.removeTimer(t.id);
+  assert(desk.timerPresets.length >= 1); desk.setTimerPresets([{label: 'Sprint', kind: 'pomodoro', min: 15}]); assert.equal(desk.timerPresets[0].label, 'Sprint');
+  desk.autoBreakMin = 5; const f = desk.startKind('pomodoro', 1, '', null); f.startedAt = Date.now() - 61000;
+  desk.tick(); assert(desk.timers.some(x => x.kind === 'break' && x.startedAt), 'a break starts by itself after a Focus');
+  for (const x of [...desk.timers]) desk.removeTimer(x.id); desk.autoBreakMin = 0; }
 console.log('level', levelInfo(desk.xp), 'balance', desk.balance, '\nALL SYNC TESTS PASSED');

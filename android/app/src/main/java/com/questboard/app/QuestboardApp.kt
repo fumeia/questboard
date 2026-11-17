@@ -31,6 +31,7 @@ class QuestboardApp : Application() {
         log.installCrashHandler()
         api = Api(settings)
         store = Store(this) { level, msg -> log.log(level, "store", msg) }
+        store.autoBreakMin = if (settings.autoBreak) settings.breakMin else 0
         log.deviceId = store.deviceId
         notifier = Notifier(this)
         alarms = Alarms(this)

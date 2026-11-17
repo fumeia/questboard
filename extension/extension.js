@@ -114,7 +114,9 @@ export default class QuestboardExtension extends Extension {
             s.connect('changed::server-token', () => this._sync.schedule(1000)),
             s.connect('changed::sync-enabled', () => this._sync.schedule(500)),
             s.connect('changed::theme', () => this._applyTheme()),
+            s.connect('changed::break-minutes', () => this._applyAutoBreak()),
         ];
+        this._applyAutoBreak();
         // "auto" follows GNOME's Appearance › Style (Default/Dark).
         try {
             this._ifaceSettings = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
@@ -364,6 +366,11 @@ export default class QuestboardExtension extends Extension {
                 this._log.exception('open-timers', e);
             }
         }
+    }
+
+    /** "Break after each Focus" (Timers page) uses the break length from the settings. */
+    _applyAutoBreak() {
+        this._store.autoBreakMin = this._store.data.autoBreak ? this._settings.get_int('break-minutes') : 0;
     }
 
     _buildPanelBadge() {
