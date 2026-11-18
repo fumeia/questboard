@@ -200,6 +200,58 @@ export function flushEdits() {
     return pending.length;
 }
 
+/**
+ * The level number in a circle whose outline fills up (gold) toward the next level: progress without numbers.
+ * ring.setLevel(level, frac, dark) updates it. Drawn with cairo (St.DrawingArea), so it works in every shell theme.
+ */
+export function levelRing(size = 30, labelClass = 'qb-ring-label') {
+    const w = new St.Widget({style_class: 'qb-ring', layout_manager: new Clutter.BinLayout(), width: size, height: size,
+        y_align: Clutter.ActorAlign.CENTER});
+    const area = new St.DrawingArea({width: size, height: size});
+    w._ringFrac = 0;
+    w._ringDark = true;
+    area.connect('repaint', a => {
+        const cr = a.get_context();
+        try {
+            const [W, H] = a.get_surface_size();
+            const lw = Math.max(2.5, Math.round(size / 11));
+            const r = Math.min(W, H) / 2 - lw / 2 - 0.5;
+            const cx = W / 2, cy = H / 2;
+            cr.setLineWidth(lw);
+            // a soft gold disc, the empty track, then the part of the way to the next level
+            cr.setSourceRGBA(0.965, 0.827, 0.176, w._ringDark ? 0.14 : 0.22);
+            cr.arc(cx, cy, r, 0, 2 * Math.PI);
+            cr.fill();
+            if (w._ringDark)
+                cr.setSourceRGBA(1, 1, 1, 0.16);
+            else
+                cr.setSourceRGBA(0, 0, 0, 0.14);
+            cr.arc(cx, cy, r, 0, 2 * Math.PI);
+            cr.stroke();
+            if (w._ringFrac > 0) {
+                if (w._ringDark)
+                    cr.setSourceRGBA(0.965, 0.827, 0.176, 1);
+                else
+                    cr.setSourceRGBA(0.898, 0.647, 0.039, 1);
+                cr.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * Math.min(1, w._ringFrac));
+                cr.stroke();
+            }
+        } finally {
+            cr.$dispose?.();
+        }
+    });
+    const lbl = label('', labelClass, {x_align: Clutter.ActorAlign.CENTER, y_align: Clutter.ActorAlign.CENTER});
+    w.add_child(area);
+    w.add_child(lbl);
+    w.setLevel = (level, frac, dark = true) => {
+        lbl.text = String(level);
+        w._ringFrac = frac;
+        w._ringDark = dark;
+        area.queue_repaint();
+    };
+    return w;
+}
+
 /** Check box with a 24 px click area around the 16 px (or 12 px) box. */
 export function checkButton(checked, onClick, {small = false, accessible_name = '', where = 'check'} = {}) {
     let cls = 'qb-check';

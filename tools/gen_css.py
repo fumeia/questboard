@@ -15,7 +15,7 @@ OUT = os.path.join(ROOT, "extension", "stylesheet.css")
 # Rules outside the popup (top bar) are emitted once, untouched.
 GLOBAL = (".qb-panel-badge",)
 # Text that sits on a strong colour stays white in both themes.
-KEEP_WHITE = (".qb-check.checked .qb-check-icon", ".qb-day.today.selected .qb-day-num", ".qb-level-badge")
+KEEP_WHITE = (".qb-check.checked .qb-check-icon", ".qb-day.today.selected .qb-day-num")
 
 SURFACES = {
     "dark": "background-color: #242428; color: #eeeeec; border: 1px solid rgba(255,255,255,0.06);",
@@ -38,10 +38,9 @@ LIGHT_OVERRIDES = {
     ".qb-quest-sched": "background-color: rgba(53,132,228,0.14); color: #1c5fb8;",
     ".qb-quest-time.running": "color: #1a7f37;",
     ".qb-running .qb-icon": "color: #1a7f37;",
-    ".qb-level-badge": "background-color: #f6d32d; color: #241f31;",
-    ".qb-xp-fill": "background-color: #e5a50a;",
     ".qb-target-hit": "color: #1a7f37;",
-    ".qb-rank-fill": "background-color: #e5a50a;",
+    ".qb-ring-label": "color: #9c6a00;",
+    ".qb-pip.done": "background-color: #e5a50a;",
 }
 
 

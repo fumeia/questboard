@@ -288,7 +288,8 @@ export default class QuestboardExtension extends Extension {
             this._notify(`Level up · Lv ${r.levelUp.to}`, `You are now a ${rankName(r.levelUp.to)}. Click the level badge to see what comes next.`);
         if (r.daily)
             this._notify('Daily focus target reached · +25 XP', 'That counts for the streak too. Anything more today is a bonus.');
-        if (r.unlocked.length && r.first) {
+        // many at once (first run, or new tiers after an update): one summary instead of a pile of notifications
+        if (r.unlocked.length && (r.first || r.unlocked.length > 3)) {
             const xp = r.unlocked.reduce((a, x) => a + x.xp, 0);
             this._notify(`${r.unlocked.length} achievements for what you already did · +${xp} XP`, r.unlocked.map(a => a.title).join(' · '));
         } else {

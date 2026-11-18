@@ -131,9 +131,11 @@ Using it:
 - Reopening the popup within 2 minutes keeps the page you were on.
 - Physics RPG quests open the game instead of starting a timer (the game records the study time itself), and show
   how many reviews (respawns) are due.
-- **Level badge** (top left): click it for the Level page. Each level has a rank (Point particle → Free electron → …
-  → Black hole), the page shows where XP comes from, a **daily focus target** (default 3 h; timers and Physics RPG study
-  time count; +25 XP once a day) and **achievements** (worked out from what you already did, each pays XP once).
+- **Level ring** (top left): the level number in a circle whose gold outline fills toward the next level. Click it for the
+  Level page: 40 ranks (Point particle → … → White dwarf → … → Theory of Everything; Lv 40 needs 78 000 XP), where XP comes
+  from, a **daily focus target** (default 3 h; timers and Physics RPG study time count; +25 XP once a day) and
+  **achievements**: 16 families of tiers that get harder (e.g. Tomato farmer I–VII, 1 → 400 Pomodoros), 89 in all, worked
+  out from what you already did, each tier pays XP once.
   The header shows today's focus time (green once the target is reached). Same on the phone.
 - Habit strip above the matrix: one click = today's check-in. Full habit management in the **Habits** tab.
 - **Timers:** your timers first, then presets (one click starts); "+ Custom timer" opens the full form. Changing the

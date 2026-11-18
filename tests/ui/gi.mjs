@@ -247,6 +247,11 @@ const St = {
     Entry,
     Button,
     Icon: class Icon extends Actor {},
+    DrawingArea: class DrawingArea extends Actor {
+        queue_repaint() {
+            this.repaints = (this.repaints ?? 0) + 1;
+        }
+    },
     ScrollView,
     Adjustment,
     PolicyType: {NEVER: 0, AUTOMATIC: 1, ALWAYS: 2},

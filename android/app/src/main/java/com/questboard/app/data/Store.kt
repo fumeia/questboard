@@ -52,10 +52,17 @@ private val DEFAULT_REWARDS = listOf(
 
 // ---- game layer: ranks, daily target, achievements (same tables as extension/store.js) ----------------------------
 
-/** One rank per level, growing in scale like the physics: Lv 1 Point particle … Lv 15 Black hole, then Big Bang. */
+/**
+ * One rank per level, growing in scale like the physics: particles → condensed matter → stars → galaxies → cosmology.
+ * 40 levels on the same curve (Lv 40 needs 78 000 XP), so the ladder lasts for months of daily study.
+ */
 val RANKS = listOf("Point particle", "Free electron", "Harmonic oscillator", "Hydrogen atom", "Spin-½", "Phonon",
-    "Bloch electron", "Cooper pair", "Fermi gas", "White dwarf", "Neutron star", "Supernova", "Pulsar", "Quasar", "Black hole")
-fun rankName(level: Int): String = RANKS.getOrNull(level - 1) ?: "Big Bang"
+    "Bloch electron", "Cooper pair", "Fermi gas", "Bose–Einstein condensate", "Superconductor", "Quantum Hall state", "Laser",
+    "Photon gas", "Plasma", "Protostar", "Main-sequence star", "Red giant", "Planetary nebula", "White dwarf",
+    "Chandrasekhar limit", "Supernova", "Neutron star", "Pulsar", "Magnetar", "Stellar black hole", "Globular cluster",
+    "Spiral galaxy", "Active galactic nucleus", "Quasar", "Galaxy cluster", "Cosmic web", "Dark matter halo",
+    "Cosmic microwave background", "Recombination", "Nucleosynthesis", "Inflation", "Planck epoch", "Big Bang", "Theory of Everything")
+fun rankName(level: Int): String = RANKS[level.coerceIn(1, RANKS.size) - 1]
 
 const val DAILY_XP = 25
 const val DEFAULT_DAILY_TARGET_MIN = 180
@@ -69,36 +76,49 @@ val XP_SOURCES = listOf(
     Triple("sun", "Daily focus target reached", "$DAILY_XP"),
     Triple("star", "Long-term goal reached", "100"),
     Triple("game", "Physics RPG", "every XP you earn in the game"),
-    Triple("trophy", "Achievement unlocked", "10 – 100, once each"),
+    Triple("trophy", "Achievement unlocked", "10 – 250, once per tier"),
 )
 
-data class Achievement(val id: String, val icon: String, val title: String, val desc: String, val metric: String, val target: Int, val xp: Int,
-                       val cur: Int = 0, val done: Boolean = false)
+data class Achievement(val id: String, val family: String, val tier: Int, val icon: String, val title: String, val desc: String,
+                       val metric: String, val target: Int, val xp: Int, val cur: Int = 0, val done: Boolean = false)
 
-/** Worked out from what is already recorded (nothing new to sync); each pays its XP once (ledger ach.<id>). */
-val ACHIEVEMENTS = listOf(
-    Achievement("first-quest", "check", "First quest", "Complete a quest", "quests", 1, 10),
-    Achievement("quests-50", "check", "Quest log", "Complete 50 quests", "quests", 50, 50),
-    Achievement("pomo-1", "target", "First tomato", "Finish a Pomodoro", "pomodoros", 1, 10),
-    Achievement("pomo-25", "target", "Tomato farmer", "Finish 25 Pomodoros", "pomodoros", 25, 30),
-    Achievement("pomo-100", "target", "Tomato empire", "Finish 100 Pomodoros", "pomodoros", 100, 75),
-    Achievement("focus-10", "stopwatch", "Ten hours deep", "10 h of focus in total", "focusH", 10, 25),
-    Achievement("focus-50", "stopwatch", "Fifty hours", "50 h of focus in total", "focusH", 50, 50),
-    Achievement("focus-100", "stopwatch", "Centurion", "100 h of focus in total", "focusH", 100, 100),
-    Achievement("streak-3", "flame", "Warm-up", "A 3-day streak", "bestStreak", 3, 15),
-    Achievement("streak-7", "flame", "One week strong", "A 7-day streak", "bestStreak", 7, 30),
-    Achievement("streak-14", "flame", "Two weeks", "A 14-day streak", "bestStreak", 14, 50),
-    Achievement("streak-30", "flame", "Unbroken month", "A 30-day streak", "bestStreak", 30, 100),
-    Achievement("daily-1", "sun", "Target hit", "Reach your daily focus target", "dailyHits", 1, 10),
-    Achievement("daily-10", "sun", "Ten good days", "Reach it on 10 days", "dailyHits", 10, 50),
-    Achievement("goal-1", "star", "Goal reached", "Reach a long-term goal", "goals", 1, 25),
-    Achievement("habit-50", "repeat", "Creature of habit", "50 habit check-ins", "checkins", 50, 30),
-    Achievement("rpg-1000", "game", "Lab regular", "1000 XP in the Physics RPG", "rpgXp", 1000, 30),
-    Achievement("rpg-5000", "game", "Lab veteran", "5000 XP in the Physics RPG", "rpgXp", 5000, 75),
-    Achievement("early", "sun", "Early bird", "Start a focus session before 8:00", "early", 1, 15),
-    Achievement("level-5", "sparkle", "Spin-½", "Reach level 5", "level", 5, 25),
-    Achievement("level-10", "sparkle", "White dwarf", "Reach level 10", "level", 10, 50),
+/** A family of tiers that get harder; desc: {n} = target, {s} = plural s. Same table as extension/store.js (tests/game_tables_test.py). */
+data class Fam(val prefix: String, val metric: String, val icon: String, val name: String, val desc: String, val tiers: List<Pair<Int, Int>>)
+
+val ACH_FAMILIES = listOf(
+    Fam("quests", "quests", "check", "Quest log", "Complete {n} quest{s}", listOf(1 to 10, 10 to 15, 25 to 20, 50 to 50, 100 to 50, 200 to 75, 350 to 100, 500 to 150)),
+    Fam("steps", "steps", "list", "Step by step", "Finish {n} step{s}", listOf(10 to 10, 50 to 20, 100 to 30, 250 to 50, 500 to 75)),
+    Fam("pomo", "pomodoros", "target", "Tomato farmer", "Finish {n} Pomodoro{s}", listOf(1 to 10, 10 to 15, 25 to 30, 50 to 40, 100 to 75, 200 to 100, 400 to 150)),
+    Fam("focus", "focusH", "stopwatch", "Deep focus", "{n} h of focus in total", listOf(1 to 10, 5 to 15, 10 to 25, 25 to 30, 50 to 50, 100 to 100, 150 to 100, 200 to 150, 300 to 200)),
+    Fam("streak", "bestStreak", "flame", "Unbroken", "A {n}-day streak", listOf(3 to 15, 7 to 30, 14 to 50, 21 to 50, 30 to 100, 45 to 100, 60 to 150, 90 to 200)),
+    Fam("daily", "dailyHits", "sun", "Target hit", "Reach the daily focus target on {n} day{s}", listOf(1 to 10, 5 to 20, 10 to 50, 20 to 50, 30 to 75, 45 to 100, 60 to 150)),
+    Fam("days", "studyDays", "repeat", "Showing up", "Focus on {n} different days", listOf(7 to 20, 14 to 30, 30 to 50, 45 to 75, 60 to 100, 90 to 150)),
+    Fam("bigday", "bestDayH", "bolt", "Marathon", "{n} h of focus in one day", listOf(4 to 20, 6 to 40, 8 to 75, 10 to 100)),
+    Fam("week", "bestWeekH", "stopwatch", "Big week", "{n} h of focus in 7 days", listOf(10 to 20, 20 to 40, 30 to 75, 40 to 100)),
+    Fam("deep", "deep", "target", "Deep work", "{n} focus session{s} of 90 min or more", listOf(1 to 15, 10 to 30, 25 to 50, 50 to 100)),
+    Fam("early", "early", "sun", "Early bird", "{n} focus session{s} started before 8:00", listOf(1 to 15, 10 to 30, 30 to 50)),
+    Fam("goal", "goals", "star", "Goal reached", "Reach {n} long-term goal{s}", listOf(1 to 25, 3 to 75)),
+    Fam("habit", "checkins", "repeat", "Creature of habit", "{n} habit check-ins", listOf(10 to 10, 50 to 30, 100 to 50, 250 to 75, 500 to 100)),
+    Fam("rpg", "rpgXp", "game", "Lab regular", "{n} XP in the Physics RPG", listOf(500 to 20, 1000 to 30, 2500 to 50, 5000 to 75, 10000 to 100, 20000 to 150, 40000 to 200)),
+    Fam("level", "level", "sparkle", "Rank up", "Reach level {n}", listOf(5 to 25, 10 to 50, 15 to 75, 20 to 100, 25 to 125, 30 to 150, 40 to 250)),
+    Fam("shop", "rewards", "gift", "Treat yourself", "Redeem {n} reward{s}", listOf(1 to 10, 10 to 25, 25 to 50)),
 )
+private val ROMAN = listOf("I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X")
+private val OLD_IDS = mapOf("quests-1" to "first-quest", "early-1" to "early")  // ids from before the tiers (already paid somewhere)
+
+/** Every tier as one achievement; level tiers are named after the rank. */
+val ACHIEVEMENTS: List<Achievement> = ACH_FAMILIES.flatMap { f ->
+    f.tiers.mapIndexed { i, (target, xp) ->
+        val key = "${f.prefix}-$target"
+        Achievement(OLD_IDS[key] ?: key, f.prefix, i, f.icon, if (f.prefix == "level") rankName(target) else "${f.name} ${ROMAN[i]}",
+            f.desc.replace("{n}", "%,d".format(java.util.Locale.ENGLISH, target)).replace("{s}", if (target == 1) "" else "s"), f.metric, target, xp)
+    }
+}
+
+data class FamilyProgress(val fam: Fam, val tiers: List<Achievement>, val done: Int) {
+    val last get() = if (done > 0) tiers[done - 1] else null
+    val next get() = tiers.firstOrNull { !it.done }
+}
 
 data class Rewards(val daily: Boolean, val unlocked: List<Achievement>, val levelUp: Pair<Int, Int>?, val first: Boolean,
                    val seen: Set<String>, val level: Int)
@@ -398,20 +418,32 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
     fun xpOn(key: String = dateKey()): Int = all("ledger").filter { it.optInt("amount") > 0 && it.str("kind") != "purchase" && dateKeyOf(it.optLong("at")) == key }
         .sumOf { it.optInt("amount") }
 
+    /** Numbers the achievements are measured by (all only ever grow, so an achievement is never taken back). */
     private fun gameMetrics(): Map<String, Int> {
-        var quests = 0; var pomos = 0; var goals = 0; var daily = 0; var rpg = 0
+        var quests = 0; var steps = 0; var pomos = 0; var goals = 0; var daily = 0; var rpg = 0; var rewards = 0
         for (l in all("ledger")) when (l.str("kind")) {
-            "quest" -> quests++; "pomodoro" -> pomos++; "goal" -> goals++; "daily" -> daily++; "rpg" -> rpg += l.optInt("amount")
+            "quest" -> quests++; "step" -> steps++; "pomodoro" -> pomos++; "goal" -> goals++; "daily" -> daily++
+            "purchase" -> rewards++; "rpg" -> rpg += l.optInt("amount")
         }
-        var ms = 0L; var early = 0
+        var ms = 0L; var early = 0; var deep = 0
         for (s in all("sessions")) {
             if (s.str("kind") == "break") continue
-            ms += s.optLong("durationMs")
-            if (early == 0 && s.optLong("start") > 0 && s.optLong("durationMs") >= 20 * 60_000L &&
-                Instant.ofEpochMilli(s.optLong("start")).atZone(ZoneId.systemDefault()).hour < 8) early = 1
+            val d = s.optLong("durationMs")
+            ms += d
+            if (d >= 90 * 60_000L) deep++
+            if (s.optLong("start") > 0 && d >= 20 * 60_000L && Instant.ofEpochMilli(s.optLong("start")).atZone(ZoneId.systemDefault()).hour < 8) early++
         }
-        return mapOf("quests" to quests, "pomodoros" to pomos, "goals" to goals, "dailyHits" to daily, "rpgXp" to rpg,
-            "focusH" to (ms / 3_600_000L).toInt(), "early" to early, "checkins" to all("checkins").size,
+        // per day: days with focus, the best day, the best 7 days in a row
+        val byDay = derived().focusByDay.filterValues { it > 0 }
+        var bestDay = 0L; var bestWeek = 0L
+        for ((k, v) in byDay) {
+            bestDay = max(bestDay, v)
+            val d0 = LocalDate.parse(k)
+            bestWeek = max(bestWeek, (0L until 7L).sumOf { byDay[dateKey(d0.plusDays(it))] ?: 0L })
+        }
+        return mapOf("quests" to quests, "steps" to steps, "pomodoros" to pomos, "goals" to goals, "dailyHits" to daily, "rpgXp" to rpg,
+            "rewards" to rewards, "focusH" to (ms / 3_600_000L).toInt(), "early" to early, "deep" to deep, "checkins" to all("checkins").size,
+            "studyDays" to byDay.size, "bestDayH" to (bestDay / 3_600_000L).toInt(), "bestWeekH" to (bestWeek / 3_600_000L).toInt(),
             "bestStreak" to stats(0).bestStreak, "level" to levelInfo(xp).level)
     }
 
@@ -422,6 +454,12 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
             val cur = min(a.target, m[a.metric] ?: 0)
             a.copy(cur = cur, done = colls.getValue("ledger").containsKey("ach.${a.id}") || cur >= a.target)
         }
+    }
+
+    /** Per family: its tiers with progress, and how many are done. */
+    fun achievementFamilies(): List<FamilyProgress> {
+        val list = achievements()
+        return ACH_FAMILIES.map { f -> list.filter { it.family == f.prefix }.let { t -> FamilyProgress(f, t, t.count { it.done }) } }
     }
 
     /**

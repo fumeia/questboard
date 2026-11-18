@@ -14,10 +14,9 @@ import {HabitStrip, HabitsPage, LevelPage, ProgressPage, ShopPage} from './pages
 import {QUADRANTS, STEP_XP, dueInDays, groupBonus, levelInfo, parseDueDate, questXp, rankName} from './store.js';
 import {
     addDays, box, button, checkButton, clearChildren, dateKey, entry, flushEdits, fmtDate, fmtMinutes, fmtSpent, fmtTimer, gicon,
-    icon, iconButton, iconLabel, iconTextButton, label, scroll, textButton,
+    icon, iconButton, iconLabel, iconTextButton, label, levelRing, scroll, textButton,
 } from './util.js';
 
-const XP_BAR_W = 78;
 const TABS = [
     ['matrix', 'qb-grid', 'Matrix'],
     ['habits', 'qb-repeat', 'Habits'],
@@ -190,17 +189,12 @@ export class Dashboard {
     _buildHeader() {
         const h = box({style_class: 'qb-header'});
 
+        // the level number in a ring that fills toward the next level (no numbers here; the Level page has them)
         const lvl = box({style_class: 'qb-level', y_align: Clutter.ActorAlign.CENTER});
-        this._lvlLabel = label('', 'qb-level-badge');
-        lvl.add_child(this._lvlLabel);
-        const xpCol = box({vertical: true, y_align: Clutter.ActorAlign.CENTER});
-        const track = new St.Widget({style_class: 'qb-xp-track', width: XP_BAR_W});
-        this._xpFill = new St.Widget({style_class: 'qb-xp-fill'});
-        track.add_child(this._xpFill);
-        xpCol.add_child(track);
-        this._xpLabel = label('', 'qb-xp-label');
-        xpCol.add_child(this._xpLabel);
-        lvl.add_child(xpCol);
+        this._ring = levelRing(30);
+        lvl.add_child(this._ring);
+        this._rankLabel = label('', 'qb-rank-mini', {y_align: Clutter.ActorAlign.CENTER});
+        lvl.add_child(this._rankLabel);
         // the badge explains itself: a click opens the Level page (ranks, where XP comes from, achievements)
         h.add_child(button({style_class: 'qb-stat-btn qb-level-btn', child: lvl, y_align: Clutter.ActorAlign.CENTER,
             accessible_name: 'Level, ranks and achievements'}, () => this._setPage('level'), 'level'));
@@ -241,9 +235,8 @@ export class Dashboard {
 
     _renderHeader(now = Date.now()) {
         const info = levelInfo(this._store.xp);
-        this._lvlLabel.text = `Lv ${info.level}`;
-        this._xpFill.set_width(Math.max(2, Math.round(XP_BAR_W * info.frac)));
-        this._xpLabel.text = `${rankName(info.level)} · ${info.into}/${info.span}`;
+        this._ring.setLevel(info.level, info.frac, this.ctx.isDark?.() ?? true);
+        this._rankLabel.text = rankName(info.level);
         this._coins.labelActor.text = this._store.balance.toLocaleString();
         const streak = this._store.streak();
         this._streak.labelActor.text = `${streak}d`;
@@ -304,6 +297,8 @@ export class Dashboard {
     onThemeChanged() {
         // show what a click will switch *to*
         this._themeIcon.gicon = gicon(this.ctx.isDark?.() ? 'qb-sun' : 'qb-moon');
+        if (this._ring)
+            this._renderHeader();
     }
 
     _renderSync() {

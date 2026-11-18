@@ -57,6 +57,7 @@ import com.questboard.app.data.levelInfo
 import com.questboard.app.data.rankName
 import com.questboard.app.data.str
 import com.questboard.app.ui.LevelScreen
+import com.questboard.app.ui.LevelRing
 import com.questboard.app.ui.UiBus
 import com.questboard.app.ui.Bar
 import com.questboard.app.ui.C
@@ -138,7 +139,8 @@ class MainActivity : ComponentActivity() {
         r.levelUp?.let { (_, to) -> app.notifier.alert(9101, "Level up · Lv $to", "You are now a ${rankName(to)}. Tap the level badge to see what comes next.", "level") }
         if (r.daily) app.notifier.alert(9102, "Daily focus target reached · +$DAILY_XP XP", "That counts for the streak too. Anything more today is a bonus.", "level")
         if (r.unlocked.isNotEmpty()) {
-            if (r.first) app.notifier.alert(9103, "${r.unlocked.size} achievements for what you already did · +${r.unlocked.sumOf { it.xp }} XP",
+            // many at once (first run, or new tiers after an update): one summary instead of a pile of notifications
+            if (r.first || r.unlocked.size > 3) app.notifier.alert(9103, "${r.unlocked.size} achievements for what you already did · +${r.unlocked.sumOf { it.xp }} XP",
                 r.unlocked.joinToString(" · ") { it.title }, "level")
             else for (a in r.unlocked) app.notifier.alert(9200 + a.id.hashCode() % 500, "Achievement: ${a.title} · +${a.xp} XP", a.desc, "level")
         }
@@ -219,14 +221,11 @@ class MainActivity : ComponentActivity() {
           Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
             // the badge explains itself: a tap opens the Level screen (ranks, where XP comes from, achievements)
             Row(Modifier.clip(RoundedCornerShape(8.dp)).clickable { tab.value = "level" }, verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.clip(RoundedCornerShape(50)).background(C.gold).padding(horizontal = 10.dp, vertical = 3.dp)) {
-                    Text("Lv ${info.level}", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = C.ink)
-                }
-                HSpace(8.dp)
-                Column(Modifier.width(96.dp)) {
-                    Bar(info.frac, C.gold)
-                    Text(rankName(info.level), color = C.muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
+                // the level in a ring that fills toward the next level; the numbers are on the Level screen
+                LevelRing(info.level, info.frac)
+                HSpace(6.dp)
+                Text(rankName(info.level), color = C.muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 110.dp))
             }
             HSpace(10.dp)
             Row(Modifier.clickable { tab.value = "shop" }, verticalAlignment = Alignment.CenterVertically) {

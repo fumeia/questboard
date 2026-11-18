@@ -3,10 +3,10 @@
 import Clutter from 'gi://Clutter';
 import St from 'gi://St';
 
-import {DAILY_XP, GOAL_XP, PICKABLE_ICONS, RANKS, XP_SOURCES, habitXp, levelInfo, rankName} from './store.js';
+import {ACHIEVEMENTS, DAILY_XP, GOAL_XP, PICKABLE_ICONS, RANKS, XP_SOURCES, habitXp, levelInfo, rankName} from './store.js';
 import {
     addDays, box, button, checkButton, clearChildren, dateKey, entry, flushEdits, fmtDate, fmtSpent, icon, iconButton, iconLabel,
-    iconTextButton, label, scroll, startOfDay, startOfWeek, textButton,
+    iconTextButton, label, levelRing, scroll, startOfDay, startOfWeek, textButton,
 } from './util.js';
 
 /** A row of icon choices; returns {actor, value}. */
@@ -785,18 +785,18 @@ export class LevelPage {
         // rank card
         const card = box({vertical: true, style_class: 'qb-rank-card'});
         const top = box({style_class: 'qb-actions-row'});
-        top.add_child(label(`Lv ${info.level}`, 'qb-level-badge qb-rank-badge'));
+        const ring = levelRing(58, 'qb-ring-label qb-ring-label-big');
+        ring.setLevel(info.level, info.frac, this._dash.ctx.isDark?.() ?? true);
+        top.add_child(ring);
         const names = box({vertical: true, x_expand: true, y_align: Clutter.ActorAlign.CENTER});
         names.add_child(label(rankName(info.level), 'qb-rank-name'));
         names.add_child(label(`${this._store.xp.toLocaleString()} XP in total · coins ${this._store.balance.toLocaleString()}`, 'qb-muted'));
         top.add_child(names);
         card.add_child(top);
-        const track = new St.Widget({style_class: 'qb-rank-track', x_expand: true});
-        const fill = new St.Widget({style_class: 'qb-rank-fill'});
-        track.add_child(fill);
-        track.connect('notify::width', () => fill.set_width(Math.max(4, Math.round(track.width * info.frac))));
-        card.add_child(track);
-        card.add_child(label(`${(info.span - info.into).toLocaleString()} XP to Lv ${info.level + 1} · ${rankName(info.level + 1)}`, 'qb-muted'));
+        card.add_child(label(info.level >= RANKS.length
+            ? `${info.into.toLocaleString()} XP into Lv ${info.level} · the top of the ladder`
+            : `${info.into.toLocaleString()} / ${info.span.toLocaleString()} XP into Lv ${info.level} · ${(info.span - info.into).toLocaleString()} to Lv ${info.level + 1} · ${rankName(info.level + 1)}`,
+        'qb-muted', {wrap: true}));
         card.add_child(label('Your level only goes up. Coins are the XP you have not spent in the shop yet.', 'qb-muted', {wrap: true}));
         b.add_child(card);
 
@@ -835,28 +835,37 @@ export class LevelPage {
             b.add_child(row);
         }
 
-        // achievements
-        const achs = this._store.achievements();
-        const got = achs.filter(a => a.done).length;
-        b.add_child(label(`Achievements · ${got}/${achs.length}`, 'qb-section-title'));
-        const sorted = [...achs.filter(a => !a.done).sort((x, y) => y.cur / y.target - x.cur / x.target), ...achs.filter(a => a.done)];
+        // achievements: one tile per family, its tiers as dots, the next tier with its progress
+        const fams = this._store.achievementFamilies();
+        const got = fams.reduce((n, f) => n + f.done, 0);
+        b.add_child(label(`Achievements · ${got}/${ACHIEVEMENTS.length}`, 'qb-section-title'));
+        const sorted = [...fams].sort((x, y) => (!x.next - !y.next) || (y.next ? y.next.cur / y.next.target : 0) - (x.next ? x.next.cur / x.next.target : 0));
         let row = null;
-        sorted.forEach((a, i) => {
+        sorted.forEach((f, i) => {
             if (i % 2 === 0) {
                 row = box({style_class: 'qb-tiles'});
                 b.add_child(row);
             }
-            const c = box({style_class: a.done ? 'qb-ach done' : 'qb-ach', x_expand: true});
-            c.add_child(new St.Bin({style_class: 'qb-ach-icon', child: icon(a.icon), y_align: Clutter.ActorAlign.CENTER}));
+            const all = !f.next;
+            const c = box({style_class: all ? 'qb-ach done' : f.done ? 'qb-ach some' : 'qb-ach', x_expand: true});
+            c.add_child(new St.Bin({style_class: 'qb-ach-icon', child: icon(f.icon), y_align: Clutter.ActorAlign.CENTER}));
             const m = box({vertical: true, x_expand: true});
-            m.add_child(label(a.title, 'qb-ach-title', {ellipsize: true}));
-            m.add_child(label(a.done ? `${a.desc} · +${a.xp} XP` : `${a.desc} · ${a.cur}/${a.target}`, 'qb-muted', {ellipsize: true}));
-            if (!a.done) {
+            const head = box({});
+            head.add_child(label(f.last ? f.last.title : f.name, 'qb-ach-title', {ellipsize: true, x_expand: true}));
+            const pips = box({style_class: 'qb-pips', y_align: Clutter.ActorAlign.CENTER});
+            f.tiers.forEach(t => pips.add_child(new St.Widget({style_class: t.done ? 'qb-pip done' : 'qb-pip', y_align: Clutter.ActorAlign.CENTER})));
+            head.add_child(pips);
+            m.add_child(head);
+            if (f.next) {
+                m.add_child(label(`Next: ${f.next.desc} · ${f.next.cur.toLocaleString()}/${f.next.target.toLocaleString()} · +${f.next.xp} XP`, 'qb-muted', {ellipsize: true}));
                 const at = new St.Widget({style_class: 'qb-progress-track', x_expand: true});
                 const af = new St.Widget({style_class: 'qb-progress-fill'});
                 at.add_child(af);
-                at.connect('notify::width', () => af.set_width(Math.round(at.width * a.cur / a.target)));
+                const frac = f.next.cur / f.next.target;
+                at.connect('notify::width', () => af.set_width(Math.round(at.width * frac)));
                 m.add_child(at);
+            } else {
+                m.add_child(label(`All ${f.tiers.length} tiers done`, 'qb-muted'));
             }
             c.add_child(m);
             row.add_child(c);
@@ -864,8 +873,7 @@ export class LevelPage {
 
         // the ladder
         b.add_child(label('Ranks', 'qb-section-title'));
-        const last = Math.max(info.level + 2, RANKS.length);
-        for (let lv = 1; lv <= last; lv++) {
+        for (let lv = 1; lv <= RANKS.length; lv++) {
             const r = box({style_class: lv === info.level ? 'qb-history-row qb-rank-row current' : lv < info.level ? 'qb-history-row qb-rank-row past' : 'qb-history-row qb-rank-row'});
             r.add_child(label(`Lv ${lv}`, 'qb-rank-lv'));
             r.add_child(label(rankName(lv), 'qb-rank-row-name', {x_expand: true}));

@@ -60,10 +60,17 @@ const TOMBSTONE_TTL = 60 * DAY_MS;
 
 // ---- game layer: ranks, daily target, achievements (same tables in Store.kt) -----------------------------------
 
-/** One rank per level, growing in scale like the physics: Lv 1 Point particle … Lv 15 Black hole, then Big Bang. */
+/**
+ * One rank per level, growing in scale like the physics: particles → condensed matter → stars → galaxies → cosmology.
+ * 40 levels on the same curve (Lv 40 needs 78 000 XP), so the ladder lasts for months of daily study.
+ */
 export const RANKS = ['Point particle', 'Free electron', 'Harmonic oscillator', 'Hydrogen atom', 'Spin-½', 'Phonon',
-    'Bloch electron', 'Cooper pair', 'Fermi gas', 'White dwarf', 'Neutron star', 'Supernova', 'Pulsar', 'Quasar', 'Black hole'];
-export const rankName = level => RANKS[Math.min(level, RANKS.length + 1) - 1] ?? 'Big Bang';
+    'Bloch electron', 'Cooper pair', 'Fermi gas', 'Bose–Einstein condensate', 'Superconductor', 'Quantum Hall state', 'Laser',
+    'Photon gas', 'Plasma', 'Protostar', 'Main-sequence star', 'Red giant', 'Planetary nebula', 'White dwarf',
+    'Chandrasekhar limit', 'Supernova', 'Neutron star', 'Pulsar', 'Magnetar', 'Stellar black hole', 'Globular cluster',
+    'Spiral galaxy', 'Active galactic nucleus', 'Quasar', 'Galaxy cluster', 'Cosmic web', 'Dark matter halo',
+    'Cosmic microwave background', 'Recombination', 'Nucleosynthesis', 'Inflation', 'Planck epoch', 'Big Bang', 'Theory of Everything'];
+export const rankName = level => RANKS[Math.max(1, Math.min(level, RANKS.length)) - 1];
 
 /** Reaching the daily focus target (focus timers + Physics RPG study time) pays this once per day. */
 export const DAILY_XP = 25;
@@ -78,33 +85,43 @@ export const XP_SOURCES = [
     ['qb-sun', 'Daily focus target reached', String(DAILY_XP)],
     ['qb-star', 'Long-term goal reached', '100'],
     ['qb-game', 'Physics RPG', 'every XP you earn in the game'],
-    ['qb-trophy', 'Achievement unlocked', '10 – 100, once each'],
+    ['qb-trophy', 'Achievement unlocked', '10 – 250, once per tier'],
 ];
 
-/** Achievements: worked out from what is already recorded (nothing new to sync); each pays its XP once (ledger ach.<id>). */
-export const ACHIEVEMENTS = [
-    ['first-quest', 'qb-check', 'First quest', 'Complete a quest', 'quests', 1, 10],
-    ['quests-50', 'qb-check', 'Quest log', 'Complete 50 quests', 'quests', 50, 50],
-    ['pomo-1', 'qb-target', 'First tomato', 'Finish a Pomodoro', 'pomodoros', 1, 10],
-    ['pomo-25', 'qb-target', 'Tomato farmer', 'Finish 25 Pomodoros', 'pomodoros', 25, 30],
-    ['pomo-100', 'qb-target', 'Tomato empire', 'Finish 100 Pomodoros', 'pomodoros', 100, 75],
-    ['focus-10', 'qb-stopwatch', 'Ten hours deep', '10 h of focus in total', 'focusH', 10, 25],
-    ['focus-50', 'qb-stopwatch', 'Fifty hours', '50 h of focus in total', 'focusH', 50, 50],
-    ['focus-100', 'qb-stopwatch', 'Centurion', '100 h of focus in total', 'focusH', 100, 100],
-    ['streak-3', 'qb-flame', 'Warm-up', 'A 3-day streak', 'bestStreak', 3, 15],
-    ['streak-7', 'qb-flame', 'One week strong', 'A 7-day streak', 'bestStreak', 7, 30],
-    ['streak-14', 'qb-flame', 'Two weeks', 'A 14-day streak', 'bestStreak', 14, 50],
-    ['streak-30', 'qb-flame', 'Unbroken month', 'A 30-day streak', 'bestStreak', 30, 100],
-    ['daily-1', 'qb-sun', 'Target hit', 'Reach your daily focus target', 'dailyHits', 1, 10],
-    ['daily-10', 'qb-sun', 'Ten good days', 'Reach it on 10 days', 'dailyHits', 10, 50],
-    ['goal-1', 'qb-star', 'Goal reached', 'Reach a long-term goal', 'goals', 1, 25],
-    ['habit-50', 'qb-repeat', 'Creature of habit', '50 habit check-ins', 'checkins', 50, 30],
-    ['rpg-1000', 'qb-game', 'Lab regular', '1000 XP in the Physics RPG', 'rpgXp', 1000, 30],
-    ['rpg-5000', 'qb-game', 'Lab veteran', '5000 XP in the Physics RPG', 'rpgXp', 5000, 75],
-    ['early', 'qb-sun', 'Early bird', 'Start a focus session before 8:00', 'early', 1, 15],
-    ['level-5', 'qb-sparkle', 'Spin-½', 'Reach level 5', 'level', 5, 25],
-    ['level-10', 'qb-sparkle', 'White dwarf', 'Reach level 10', 'level', 10, 50],
-].map(([id, icon, title, desc, metric, target, xp]) => ({id, icon, title, desc, metric, target, xp}));
+/**
+ * Achievements in families of tiers that get harder (Tomato farmer I … VII: 1 … 400 Pomodoros), worked out from what is
+ * already recorded (nothing new to sync); each tier pays its XP once (ledger ach.<prefix>-<target>).
+ * [prefix, metric, icon, name, description ({n} = target, {s} = plural s), [[target, xp], …]] — the same table is in Store.kt
+ * (tests/game_tables_test.py checks that they match).
+ */
+export const ACH_FAMILIES = [
+    ['quests', 'quests', 'qb-check', 'Quest log', 'Complete {n} quest{s}', [[1, 10], [10, 15], [25, 20], [50, 50], [100, 50], [200, 75], [350, 100], [500, 150]]],
+    ['steps', 'steps', 'qb-list', 'Step by step', 'Finish {n} step{s}', [[10, 10], [50, 20], [100, 30], [250, 50], [500, 75]]],
+    ['pomo', 'pomodoros', 'qb-target', 'Tomato farmer', 'Finish {n} Pomodoro{s}', [[1, 10], [10, 15], [25, 30], [50, 40], [100, 75], [200, 100], [400, 150]]],
+    ['focus', 'focusH', 'qb-stopwatch', 'Deep focus', '{n} h of focus in total', [[1, 10], [5, 15], [10, 25], [25, 30], [50, 50], [100, 100], [150, 100], [200, 150], [300, 200]]],
+    ['streak', 'bestStreak', 'qb-flame', 'Unbroken', 'A {n}-day streak', [[3, 15], [7, 30], [14, 50], [21, 50], [30, 100], [45, 100], [60, 150], [90, 200]]],
+    ['daily', 'dailyHits', 'qb-sun', 'Target hit', 'Reach the daily focus target on {n} day{s}', [[1, 10], [5, 20], [10, 50], [20, 50], [30, 75], [45, 100], [60, 150]]],
+    ['days', 'studyDays', 'qb-repeat', 'Showing up', 'Focus on {n} different days', [[7, 20], [14, 30], [30, 50], [45, 75], [60, 100], [90, 150]]],
+    ['bigday', 'bestDayH', 'qb-bolt', 'Marathon', '{n} h of focus in one day', [[4, 20], [6, 40], [8, 75], [10, 100]]],
+    ['week', 'bestWeekH', 'qb-stopwatch', 'Big week', '{n} h of focus in 7 days', [[10, 20], [20, 40], [30, 75], [40, 100]]],
+    ['deep', 'deep', 'qb-target', 'Deep work', '{n} focus session{s} of 90 min or more', [[1, 15], [10, 30], [25, 50], [50, 100]]],
+    ['early', 'early', 'qb-sun', 'Early bird', '{n} focus session{s} started before 8:00', [[1, 15], [10, 30], [30, 50]]],
+    ['goal', 'goals', 'qb-star', 'Goal reached', 'Reach {n} long-term goal{s}', [[1, 25], [3, 75]]],
+    ['habit', 'checkins', 'qb-repeat', 'Creature of habit', '{n} habit check-ins', [[10, 10], [50, 30], [100, 50], [250, 75], [500, 100]]],
+    ['rpg', 'rpgXp', 'qb-game', 'Lab regular', '{n} XP in the Physics RPG', [[500, 20], [1000, 30], [2500, 50], [5000, 75], [10000, 100], [20000, 150], [40000, 200]]],
+    ['level', 'level', 'qb-sparkle', 'Rank up', 'Reach level {n}', [[5, 25], [10, 50], [15, 75], [20, 100], [25, 125], [30, 150], [40, 250]]],
+    ['shop', 'rewards', 'qb-gift', 'Treat yourself', 'Redeem {n} reward{s}', [[1, 10], [10, 25], [25, 50]]],
+];
+const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+// ids that existed before the tiers (already paid on some devices): keep them
+const OLD_IDS = {'quests-1': 'first-quest', 'early-1': 'early'};
+
+/** Every tier as one achievement: {id, family, tier, icon, title, desc, metric, target, xp}. Level tiers are named after the rank. */
+export const ACHIEVEMENTS = ACH_FAMILIES.flatMap(([prefix, metric, icon, name, desc, tiers]) => tiers.map(([target, xp], i) => {
+    const id = OLD_IDS[`${prefix}-${target}`] ?? `${prefix}-${target}`;
+    const title = prefix === 'level' ? rankName(target) : `${name} ${ROMAN[i]}`;
+    return {id, family: prefix, tier: i, icon, title, desc: desc.replace('{n}', target.toLocaleString('en')).replace('{s}', target === 1 ? '' : 's'), metric, target, xp};
+}));
 
 /** XP needed to *reach* level L is 50·L·(L-1): 0, 100, 300, 600, 1000 … */
 export function levelInfo(xp) {
@@ -529,18 +546,23 @@ export class Store {
         return {total, by};
     }
 
-    /** Numbers the achievements are measured by. */
+    /** Numbers the achievements are measured by (all only ever grow, so an achievement is never taken back). */
     _gameMetrics() {
-        const m = {quests: 0, pomodoros: 0, goals: 0, dailyHits: 0, rpgXp: 0, focusH: 0, early: 0, checkins: this.all('checkins').length};
+        const m = {quests: 0, steps: 0, pomodoros: 0, goals: 0, dailyHits: 0, rpgXp: 0, rewards: 0, early: 0, deep: 0,
+            checkins: this.all('checkins').length};
         for (const l of this.all('ledger')) {
             if (l.kind === 'quest')
                 m.quests++;
+            else if (l.kind === 'step')
+                m.steps++;
             else if (l.kind === 'pomodoro')
                 m.pomodoros++;
             else if (l.kind === 'goal')
                 m.goals++;
             else if (l.kind === 'daily')
                 m.dailyHits++;
+            else if (l.kind === 'purchase')
+                m.rewards++;
             else if (l.kind === 'rpg')
                 m.rpgXp += l.amount;
         }
@@ -548,23 +570,51 @@ export class Store {
         for (const s of this.all('sessions')) {
             if (s.kind === 'break')
                 continue;
-            ms += s.durationMs ?? 0;
-            if (!m.early && s.start && (s.durationMs ?? 0) >= 20 * 60000 && new Date(s.start).getHours() < 8)
-                m.early = 1;
+            const d = s.durationMs ?? 0;
+            ms += d;
+            if (d >= 90 * 60000)
+                m.deep++;
+            if (s.start && d >= 20 * 60000 && new Date(s.start).getHours() < 8)
+                m.early++;
         }
         m.focusH = Math.floor(ms / 3600000);
+        // per day: days with focus, the best day, the best 7 days in a row
+        const byDay = this._derived().focusByDay;
+        const days = Object.keys(byDay).filter(k => byDay[k] > 0);
+        m.studyDays = days.length;
+        let bestDay = 0, bestWeek = 0;
+        for (const k of days) {
+            bestDay = Math.max(bestDay, byDay[k]);
+            const [y, mo, d] = k.split('-').map(Number);
+            let w = 0;
+            for (let i = 0; i < 7; i++)
+                w += byDay[dateKey(new Date(y, mo - 1, d + i))] ?? 0;
+            bestWeek = Math.max(bestWeek, w);
+        }
+        m.bestDayH = Math.floor(bestDay / 3600000);
+        m.bestWeekH = Math.floor(bestWeek / 3600000);
         m.bestStreak = this.stats(0).bestStreak;
         m.level = levelInfo(this.xp).level;
         return m;
     }
 
-    /** Every achievement with its progress: {id, icon, title, desc, target, xp, cur, done, at?}. */
+    /** Every achievement with its progress: {id, family, tier, icon, title, desc, target, xp, cur, done}. */
     achievements() {
         const m = this._gameMetrics();
         return ACHIEVEMENTS.map(a => {
             const paid = this.data.colls.ledger[`ach.${a.id}`];
             const cur = Math.min(a.target, m[a.metric] ?? 0);
-            return {...a, cur, done: !!paid || cur >= a.target, at: paid && !paid.deleted ? paid.at : null};
+            return {...a, cur, done: !!paid || cur >= a.target};
+        });
+    }
+
+    /** Per family: the tiers, how many are done, and the next one to reach (null when all are done). */
+    achievementFamilies() {
+        const list = this.achievements();
+        return ACH_FAMILIES.map(([prefix, , icon, name]) => {
+            const tiers = list.filter(a => a.family === prefix);
+            const done = tiers.filter(a => a.done).length;
+            return {prefix, icon, name, tiers, done, last: done ? tiers[done - 1] : null, next: tiers.find(a => !a.done) ?? null};
         });
     }
 

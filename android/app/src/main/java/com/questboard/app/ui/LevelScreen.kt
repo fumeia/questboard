@@ -33,7 +33,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.questboard.app.QuestboardApp
-import com.questboard.app.data.Achievement
+import androidx.compose.ui.graphics.Color
+import com.questboard.app.data.ACHIEVEMENTS
+import com.questboard.app.data.FamilyProgress
 import com.questboard.app.data.DAILY_XP
 import com.questboard.app.data.RANKS
 import com.questboard.app.data.XP_SOURCES
@@ -45,7 +47,7 @@ import com.questboard.app.data.rankName
 fun LevelScreen(app: QuestboardApp, v: Int, now: Long, onBack: () -> Unit) {
     val s = app.store
     val info = remember(v) { levelInfo(s.xp) }
-    val achs = remember(v) { s.achievements() }
+    val fams = remember(v) { s.achievementFamilies() }
     var target by remember { mutableIntStateOf(app.settings.dailyTargetMin) }
     val focus = s.focusOn(now = now)
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -58,17 +60,15 @@ fun LevelScreen(app: QuestboardApp, v: Int, now: Long, onBack: () -> Unit) {
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(C.gold.copy(alpha = 0.1f))
                 .border(1.dp, C.gold.copy(alpha = 0.35f), RoundedCornerShape(14.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.clip(RoundedCornerShape(50)).background(C.gold).padding(horizontal = 12.dp, vertical = 6.dp)) {
-                        Text("Lv ${info.level}", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = C.ink)
-                    }
+                    LevelRing(info.level, info.frac, 60.dp, 22)
                     HSpace(12.dp)
                     Column {
                         Text(rankName(info.level), fontWeight = FontWeight.ExtraBold, fontSize = 22.sp)
                         Muted("${s.xp} XP in total · coins ${s.balance}", size = 12)
                     }
                 }
-                Bar(info.frac, C.gold, Modifier.fillMaxWidth(), 8.dp)
-                Muted("${info.span - info.into} XP to Lv ${info.level + 1} · ${rankName(info.level + 1)}", size = 13)
+                Muted(if (info.level >= RANKS.size) "${info.into} XP into Lv ${info.level} · the top of the ladder"
+                    else "${info.into} / ${info.span} XP into Lv ${info.level} · ${info.span - info.into} to Lv ${info.level + 1} · ${rankName(info.level + 1)}", size = 13)
                 Muted("Your level only goes up. Coins are the XP you have not spent in the shop yet.", size = 12)
             }
         }
@@ -101,13 +101,13 @@ fun LevelScreen(app: QuestboardApp, v: Int, now: Long, onBack: () -> Unit) {
                 }
             }
         }
-        // achievements, nearest first, then the ones you have
+        // achievements: one tile per family, its tiers as dots, the next tier with its progress (nearest first)
         item {
-            SectionTitle("Achievements · ${achs.count { it.done }}/${achs.size}")
-            val sorted = achs.filter { !it.done }.sortedByDescending { it.cur.toFloat() / it.target } + achs.filter { it.done }
+            SectionTitle("Achievements · ${fams.sumOf { it.done }}/${ACHIEVEMENTS.size}")
+            val sorted = fams.sortedWith(compareBy<FamilyProgress> { it.next == null }.thenByDescending { f -> f.next?.let { it.cur.toFloat() / it.target } ?: 0f })
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 for (pair in sorted.chunked(2)) Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    for (a in pair) AchievementTile(a, Modifier.weight(1f).fillMaxHeight())
+                    for (f in pair) FamilyTile(f, Modifier.weight(1f).fillMaxHeight())
                     if (pair.size == 1) Spacer(Modifier.weight(1f))
                 }
             }
@@ -116,7 +116,7 @@ fun LevelScreen(app: QuestboardApp, v: Int, now: Long, onBack: () -> Unit) {
         item {
             SectionTitle("Ranks")
             Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.padding(bottom = 16.dp)) {
-                for (lv in 1..maxOf(info.level + 2, RANKS.size)) {
+                for (lv in 1..RANKS.size) {
                     val cur = lv == info.level
                     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(if (cur) C.gold.copy(alpha = 0.2f) else C.bg)
                         .padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -132,18 +132,25 @@ fun LevelScreen(app: QuestboardApp, v: Int, now: Long, onBack: () -> Unit) {
 }
 
 @Composable
-private fun AchievementTile(a: Achievement, modifier: Modifier) {
-    Row(modifier.clip(RoundedCornerShape(10.dp)).background(if (a.done) C.gold.copy(alpha = 0.12f) else C.card)
-        .border(1.dp, if (a.done) C.gold.copy(alpha = 0.4f) else C.line, RoundedCornerShape(10.dp)).padding(8.dp),
+private fun FamilyTile(f: FamilyProgress, modifier: Modifier) {
+    val all = f.next == null
+    Row(modifier.clip(RoundedCornerShape(10.dp)).background(if (all) C.gold.copy(alpha = 0.12f) else if (f.done > 0) C.gold.copy(alpha = 0.05f) else C.card)
+        .border(1.dp, if (all) C.gold.copy(alpha = 0.45f) else if (f.done > 0) C.gold.copy(alpha = 0.25f) else C.line, RoundedCornerShape(10.dp)).padding(8.dp),
         verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(30.dp).clip(CircleShape).background(if (a.done) C.gold else C.surface), contentAlignment = Alignment.Center) {
-            QbIcon(a.icon, if (a.done) C.ink else C.muted, 16.dp)
-        }
+        Box(Modifier.size(30.dp).clip(CircleShape).background(if (all) C.gold else if (f.done > 0) C.gold.copy(alpha = 0.35f) else C.surface),
+            contentAlignment = Alignment.Center) { QbIcon(f.fam.icon, if (all) C.ink else C.text, 16.dp) }
         HSpace(8.dp)
         Column(Modifier.weight(1f)) {
-            Text(a.title, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = if (a.done) C.text else C.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Muted(if (a.done) "${a.desc} · +${a.xp} XP" else "${a.desc} · ${a.cur}/${a.target}", size = 11)
-            if (!a.done) Bar(a.cur.toFloat() / a.target, C.gold, Modifier.fillMaxWidth().padding(top = 3.dp), 3.dp)
+            Text(f.last?.title ?: f.fam.name, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = if (f.done > 0) C.text else C.muted,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(Modifier.padding(vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                for (t in f.tiers) Box(Modifier.size(6.dp).clip(CircleShape).background(if (t.done) C.gold else Color(0x26FFFFFF)))
+            }
+            val n = f.next
+            if (n != null) {
+                Muted("Next: ${n.desc} · ${n.cur}/${n.target} · +${n.xp} XP", size = 11)
+                Bar(n.cur.toFloat() / n.target, C.gold, Modifier.fillMaxWidth().padding(top = 3.dp), 3.dp)
+            } else Muted("All ${f.tiers.size} tiers done", size = 11)
         }
     }
 }

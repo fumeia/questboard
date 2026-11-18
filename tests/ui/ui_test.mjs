@@ -277,11 +277,18 @@ const r4 = store.checkRewards();
 check(r4.levelUp && r4.levelUp.to >= 3, `a level-up is reported (${JSON.stringify(r4.levelUp)})`);
 dash.showPage('matrix');
 check(dash._focus.has_style_class_name('qb-target-hit') && !dash._focus.labelActor.text.includes('/'), `header focus turns green at the target, no "/ 3h" (${dash._focus.labelActor.text})`);
-check(/^Harmonic oscillator|^Free electron|^Hydrogen atom/.test(dash._xpLabel.text), `rank under the XP bar (${dash._xpLabel.text})`);
+check(/^Harmonic oscillator|^Free electron|^Hydrogen atom/.test(dash._rankLabel.text) && !/\d/.test(dash._rankLabel.text), `header: rank name, no XP numbers (${dash._rankLabel.text})`);
+check(dash._ring._ringFrac > 0 && dash._ring._ringFrac < 1 && /^\d+$/.test(text(dash._ring)), `level ring: just the number, outline at ${Math.round(100 * dash._ring._ringFrac)} %`);
 click(btn('Level, ranks and achievements'));
 const lp = dash._pages.level;
-check(dash._page === 'level' && text(lp).includes('How you earn XP') && text(lp).includes('Achievements ·') && text(lp).includes('Black hole'),
+check(dash._page === 'level' && text(lp).includes('How you earn XP') && text(lp).includes('Achievements ·') && text(lp).includes('Theory of Everything') && text(lp).includes('Tomato farmer I'),
     'the level badge opens the Level page: XP sources, achievements, ranks');
+const fams = store.achievementFamilies();
+check(fams.length === 16 && fams.reduce((n, f) => n + f.tiers.length, 0) === 89, '16 achievement families, 89 tiers');
+check(fams.every(f => f.tiers.every((t, i) => i === 0 || t.target > f.tiers[i - 1].target)), 'every family gets harder tier by tier');
+const pomo = fams.find(f => f.prefix === 'pomo');
+check(pomo.done === 1 && pomo.last.title === 'Tomato farmer I' && pomo.next.target === 10, `tiers: Tomato farmer I done, II next (${pomo.next.desc})`);
+check(store.achievements().some(a => a.id === 'first-quest') && store.achievements().some(a => a.id === 'early'), 'old achievement ids kept (nothing paid twice)');
 store.setDailyTarget(store.dailyTargetMin + 30);
 check(store.dailyTargetMin === 31, 'daily target can be changed');
 shot('9-level');

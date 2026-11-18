@@ -73,6 +73,8 @@ function node(a, ctx, parentIsRow = true, parentKind = 'box') {
     const st = childStyle(a, parentIsRow, parentKind);
     if (a._fixedW)
         st.push(`width:${a._fixedW}px`, 'flex-shrink:0');
+    else if (a.style_class === 'qb-ring' && a.width)  // sized in its constructor (St takes width/height there too)
+        st.push(`width:${a.width}px`, `height:${a.height}px`, 'flex-shrink:0');
     if (a._fixedH)
         st.push(`height:${a._fixedH}px`);
     if (a._abs || parentKind === 'fixed')
@@ -88,6 +90,13 @@ function node(a, ctx, parentIsRow = true, parentKind = 'box') {
         const wrap = a.clutter_text?.line_wrap;
         classes.push('lbl', wrap ? 'wrap' : 'nowrap');
         return `<span class="${esc(classes.join(' '))}" style="${st.join(';')}">${esc(a.text)}</span>`;
+    }
+    case 'DrawingArea': {  // the level ring: drawn with cairo in the shell, a conic gradient here
+        const w = a.parent ?? {};
+        const deg = Math.round(360 * Math.min(1, w._ringFrac ?? 0));
+        st.push('border-radius:50%', 'position:absolute', 'inset:0', `background:conic-gradient(#f6d32d ${deg}deg, rgba(255,255,255,0.16) 0)`,
+            '-webkit-mask:radial-gradient(circle, transparent 58%, #000 60%)', 'mask:radial-gradient(circle, transparent 58%, #000 60%)');
+        return `<div style="${st.join(';')}"></div><div style="position:absolute;inset:3px;border-radius:50%;background:rgba(246,211,45,0.14)"></div>`;
     }
     case 'Icon':
         return iconHtml(a, ctx.iconDir).replace('style="', `style="${st.join(';')};`);
@@ -118,7 +127,7 @@ function node(a, ctx, parentIsRow = true, parentKind = 'box') {
             return `<div class="${esc(classes.join(' '))}" style="${st.join(';')}">${kids(true, 'grid')}</div>`;
         }
         if (lm?.constructor?.name === 'BinLayout') {
-            st.push('display:flex', 'justify-content:center', 'align-items:flex-end');
+            st.push('display:flex', 'justify-content:center', 'align-items:' + (a.style_class === 'qb-ring' ? 'center' : 'flex-end'), 'position:relative');
             return `<div class="${esc(classes.join(' '))}" style="${st.join(';')}">${kids(true, 'bin')}</div>`;
         }
         st.push('position:relative', 'box-sizing:border-box');

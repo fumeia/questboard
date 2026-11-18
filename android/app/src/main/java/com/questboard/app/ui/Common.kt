@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -107,6 +108,24 @@ fun Check(done: Boolean, onClick: () -> Unit) {
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { if (done) QbIcon("check", Color.White, 16.dp) }
+}
+
+/** The level number in a circle whose outline fills up (gold) toward the next level: progress without numbers. */
+@Composable
+fun LevelRing(level: Int, frac: Float, size: Dp = 32.dp, fontSize: Int = 13) {
+    Box(Modifier.size(size), contentAlignment = Alignment.Center) {
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            val stroke = (this.size.minDimension / 11f).coerceAtLeast(2.5f * density)
+            val inset = stroke / 2
+            val arcSize = androidx.compose.ui.geometry.Size(this.size.width - stroke, this.size.height - stroke)
+            val topLeft = androidx.compose.ui.geometry.Offset(inset, inset)
+            drawCircle(C.gold.copy(alpha = 0.14f), radius = this.size.minDimension / 2 - inset)
+            drawArc(Color(0x29FFFFFF), 0f, 360f, false, topLeft, arcSize, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+            if (frac > 0f) drawArc(C.gold, -90f, 360f * frac.coerceIn(0f, 1f), false, topLeft, arcSize,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+        }
+        Text("$level", color = C.gold, fontWeight = FontWeight.ExtraBold, fontSize = fontSize.sp, maxLines = 1)
+    }
 }
 
 @Composable
