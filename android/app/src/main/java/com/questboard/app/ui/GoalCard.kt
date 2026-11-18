@@ -1,4 +1,12 @@
+@file:OptIn(ExperimentalLayoutApi::class)
+
 package com.questboard.app.ui
+
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalContext
+import java.time.format.DateTimeFormatter
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -47,7 +55,8 @@ fun GoalCard(app: QuestboardApp, g: JSONObject, now: Long, open: Boolean, onTogg
     val p = s.goalProgress(id, now)
     var title by remember(id) { mutableStateOf(g.str("title")) }
     var newQuest by remember(id) { mutableStateOf("") }
-    var confirmDelete by remember(id) { mutableStateOf(false) }
+    val ctx = LocalContext.current
+    val saveTitle = { if (title.isNotBlank() && title.trim() != g.str("title")) s.updateGoal(id, mapOf("title" to title.trim())) }
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.card)
         .border(1.dp, if (done) C.gold.copy(alpha = 0.5f) else C.line, RoundedCornerShape(12.dp)).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -99,31 +108,36 @@ fun GoalCard(app: QuestboardApp, g: JSONObject, now: Long, open: Boolean, onTogg
             }
             Muted(fmtSpent(s.stepTimeMs(q.str("id"), st.str("id"), now)), size = 11)
         }
-        if (!done) Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        // deadline: quick choices, or the exact day (an exam is on a fixed date)
+        if (!done) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Muted("Deadline", size = 12)
-            for ((label, days) in listOf("+1 wk" to 7L, "+1 mo" to 30L, "+3 mo" to 91L)) {
-                val key = dateKey(LocalDate.now().plusDays(days))
-                Pill(label, if (g.str("targetDate") == key) C.accent else C.card) {
-                    s.updateGoal(id, mapOf("targetDate" to key))
-                }
+            val quick = listOf("+1 wk" to 7L, "+1 mo" to 30L, "+3 mo" to 91L).map { (l, d) -> l to dateKey(LocalDate.now().plusDays(d)) }
+            for ((label, key) in quick) Pill(label, if (g.str("targetDate") == key) C.accent else C.card) { s.updateGoal(id, mapOf("targetDate" to key)) }
+            val cur = runCatching { LocalDate.parse(g.str("targetDate")) }.getOrNull()
+            val custom = cur != null && quick.none { it.second == g.str("targetDate") }
+            Pill(if (custom) cur!!.format(DateTimeFormatter.ofPattern("EEE d.M.yyyy")) else "Pick date…", if (custom) C.accent else C.card) {
+                val start = cur ?: LocalDate.now()
+                android.app.DatePickerDialog(ctx, { _, y, m, d -> s.updateGoal(id, mapOf("targetDate" to dateKey(LocalDate.of(y, m + 1, d)))) },
+                    start.year, start.monthValue - 1, start.dayOfMonth).show()
             }
-            if (g.str("targetDate").isNotEmpty()) {
-                Muted(g.str("targetDate"), size = 12)
-                IconBtn("close", { s.updateGoal(id, mapOf("targetDate" to null)) }, C.muted, 14.dp)
-            }
+            if (cur != null) IconBtn("close", { s.updateGoal(id, mapOf("targetDate" to null)) }, C.muted, 14.dp)
         }
         if (!done) OutlinedTextField(newQuest, { newQuest = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
             placeholder = { Text("Add a quest for this goal") },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { s.addQuest(newQuest, "q2", goalId = id); newQuest = "" }))
-        OutlinedTextField(title, { title = it }, singleLine = true, modifier = Modifier.fillMaxWidth(), label = { Text("Goal title") },
+        // saved on Done and when you tap elsewhere, so a rename is never lost
+        OutlinedTextField(title, { title = it }, singleLine = true, label = { Text("Goal title") },
+            modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused) saveTitle() },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { if (title.isNotBlank()) s.updateGoal(id, mapOf("title" to title.trim())) }))
+            keyboardActions = KeyboardActions(onDone = { saveTitle() }))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Muted("Link more from a quest's details (whole quest or single steps).", Modifier.weight(1f), 11)
             Spacer(Modifier.padding(4.dp))
-            if (confirmDelete) Pill("Really delete", C.red) { s.deleteGoal(id) }
-            else Pill("Delete", Color.Transparent, C.red) { confirmDelete = true }
+            Pill("Delete", Color.Transparent, C.red) {
+                val old = s.deleteGoal(id)
+                showUndo("Deleted goal “${g.str("title")}”") { s.restoreRecord("goals", old) }
+            }
         }
     }
 }

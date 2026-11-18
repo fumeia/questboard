@@ -13,7 +13,7 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import {Dashboard} from './dashboard.js';
 import {Eds} from './eds.js';
 import {Api, Logger, SyncClient, Updater} from './net.js';
-import {Store} from './store.js';
+import {Store, rankName} from './store.js';
 import {fmtTimer, gicon, setErrorHandler, setIconDir} from './util.js';
 
 const MIN_W = 780;
@@ -85,6 +85,7 @@ export default class QuestboardExtension extends Extension {
                     this._setClassic(false);
                     this._applySize();
                     this._openDashboard();
+                    this._rewards();
                     // network after the popup is drawn, so opening never waits for it
                     this._sync.schedule(1200);
                     this._updater.maybeCheck();
@@ -280,7 +281,24 @@ export default class QuestboardExtension extends Extension {
         return GLib.SOURCE_CONTINUE;
     }
 
+    /** Pay the daily target and achievements, and say so (also when the popup opens). */
+    _rewards() {
+        const r = this._store.checkRewards();
+        if (r.levelUp)
+            this._notify(`Level up · Lv ${r.levelUp.to}`, `You are now a ${rankName(r.levelUp.to)}. Click the level badge to see what comes next.`);
+        if (r.daily)
+            this._notify('Daily focus target reached · +25 XP', 'That counts for the streak too. Anything more today is a bonus.');
+        if (r.unlocked.length && r.first) {
+            const xp = r.unlocked.reduce((a, x) => a + x.xp, 0);
+            this._notify(`${r.unlocked.length} achievements for what you already did · +${xp} XP`, r.unlocked.map(a => a.title).join(' · '));
+        } else {
+            for (const a of r.unlocked)
+                this._notify(`Achievement: ${a.title} · +${a.xp} XP`, a.desc);
+        }
+    }
+
     _housekeeping() {
+        this._rewards();
         if (this._settings.get_boolean('quest-reminders')) {
             for (const q of this._store.dueReminders())
                 this._notify(`Starting now: ${q.title}`, `Scheduled quest · ${q.scheduled.duration ?? 60} min`);

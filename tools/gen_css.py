@@ -40,6 +40,8 @@ LIGHT_OVERRIDES = {
     ".qb-running .qb-icon": "color: #1a7f37;",
     ".qb-level-badge": "background-color: #f6d32d; color: #241f31;",
     ".qb-xp-fill": "background-color: #e5a50a;",
+    ".qb-target-hit": "color: #1a7f37;",
+    ".qb-rank-fill": "background-color: #e5a50a;",
 }
 
 

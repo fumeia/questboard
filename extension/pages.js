@@ -3,7 +3,7 @@
 import Clutter from 'gi://Clutter';
 import St from 'gi://St';
 
-import {GOAL_XP, PICKABLE_ICONS, habitXp} from './store.js';
+import {DAILY_XP, GOAL_XP, PICKABLE_ICONS, RANKS, XP_SOURCES, habitXp, levelInfo, rankName} from './store.js';
 import {
     addDays, box, button, checkButton, clearChildren, dateKey, entry, flushEdits, fmtDate, fmtSpent, icon, iconButton, iconLabel,
     iconTextButton, label, scroll, startOfDay, startOfWeek, textButton,
@@ -503,7 +503,7 @@ export class ProgressPage {
             const area = new St.Widget({style_class: 'qb-chart-area', y_expand: true, x_expand: true, layout_manager: new Clutter.BinLayout()});
             const h = d.total ? Math.max(3, Math.round(H * d.total / max)) : 1;
             const stack = box({vertical: true, style_class: this._picked === d.date ? 'qb-stack picked' : 'qb-stack',
-                x_align: Clutter.ActorAlign.FILL, y_align: Clutter.ActorAlign.END, height: h});
+                x_align: Clutter.ActorAlign.CENTER, y_align: Clutter.ActorAlign.END, height: h});  // width from the CSS: its parts have none of their own
             if (!d.total)
                 stack.set_style('background-color: rgba(255,255,255,0.08);');
             let used = 0;
@@ -758,5 +758,119 @@ class GoalsSection {
         }
         card.add_child(label('Single steps: open a quest and use the Goal… button next to a step.', 'qb-muted', {wrap: true}));
         return card;
+    }
+}
+
+// ------------------------------------------------------------------ level (no tab: the badge in the header opens it)
+
+/** Your rank, what the next one needs, where XP comes from, the daily focus target, the rank ladder and achievements. */
+export class LevelPage {
+    constructor(dash) {
+        this._dash = dash;
+        this._store = dash.ctx.store;
+        this.actor = box({vertical: true, style_class: 'qb-page', x_expand: true, y_expand: true});
+        const head = box({style_class: 'qb-actions-row'});
+        head.add_child(iconTextButton('qb-chevron-left', 'Back', 'qb-small', () => dash._setPage('matrix')));
+        head.add_child(label('Level & achievements', 'qb-section-title', {x_expand: true}));
+        this.actor.add_child(head);
+        this._body = box({vertical: true, style_class: 'qb-stats-body'});
+        this.actor.add_child(scroll(this._body, {y_expand: true}));
+    }
+
+    render(now = Date.now()) {
+        const b = this._body;
+        clearChildren(b);
+        const info = levelInfo(this._store.xp);
+
+        // rank card
+        const card = box({vertical: true, style_class: 'qb-rank-card'});
+        const top = box({style_class: 'qb-actions-row'});
+        top.add_child(label(`Lv ${info.level}`, 'qb-level-badge qb-rank-badge'));
+        const names = box({vertical: true, x_expand: true, y_align: Clutter.ActorAlign.CENTER});
+        names.add_child(label(rankName(info.level), 'qb-rank-name'));
+        names.add_child(label(`${this._store.xp.toLocaleString()} XP in total · coins ${this._store.balance.toLocaleString()}`, 'qb-muted'));
+        top.add_child(names);
+        card.add_child(top);
+        const track = new St.Widget({style_class: 'qb-rank-track', x_expand: true});
+        const fill = new St.Widget({style_class: 'qb-rank-fill'});
+        track.add_child(fill);
+        track.connect('notify::width', () => fill.set_width(Math.max(4, Math.round(track.width * info.frac))));
+        card.add_child(track);
+        card.add_child(label(`${(info.span - info.into).toLocaleString()} XP to Lv ${info.level + 1} · ${rankName(info.level + 1)}`, 'qb-muted'));
+        card.add_child(label('Your level only goes up. Coins are the XP you have not spent in the shop yet.', 'qb-muted', {wrap: true}));
+        b.add_child(card);
+
+        // today: daily target
+        b.add_child(label('Today', 'qb-section-title'));
+        const target = this._store.dailyTargetMin;
+        const focus = this._store.focusOn(undefined, now);
+        const today = this._store.xpOn();
+        const t = box({vertical: true, style_class: 'qb-goal'});
+        const tr = box({style_class: 'qb-actions-row'});
+        tr.add_child(iconLabel('qb-sun', target > 0
+            ? `Focus ${fmtSpent(focus) || '0m'} of ${fmtSpent(target * 60000)}${this._store.dailyHit() ? ` · reached, +${DAILY_XP} XP` : ''}`
+            : 'Daily focus target off', 'qb-topic-name'));
+        tr.add_child(new St.Widget({x_expand: true}));
+        tr.add_child(textButton('−30m', 'qb-small', () => this._store.setDailyTarget(target - 30)));
+        tr.add_child(textButton('+30m', 'qb-small', () => this._store.setDailyTarget(target + 30)));
+        t.add_child(tr);
+        if (target > 0) {
+            const tt = new St.Widget({style_class: 'qb-progress-track', x_expand: true});
+            const tf = new St.Widget({style_class: 'qb-goal-fill'});
+            tt.add_child(tf);
+            tt.connect('notify::width', () => tf.set_width(Math.round(tt.width * Math.min(1, focus / (target * 60000)))));
+            t.add_child(tt);
+        }
+        t.add_child(label(`Timers and Physics RPG study time count. Reaching it pays +${DAILY_XP} XP once a day and keeps the streak. `
+            + `XP today: ${today.total}.`, 'qb-muted', {wrap: true}));
+        b.add_child(t);
+
+        // where XP comes from
+        b.add_child(label('How you earn XP', 'qb-section-title'));
+        for (const [ic, what, how] of XP_SOURCES) {
+            const row = box({style_class: 'qb-history-row'});
+            row.add_child(icon(ic, 'qb-icon qb-src-icon'));
+            row.add_child(label(what, 'qb-topic-name'));
+            row.add_child(label(how, 'qb-muted', {ellipsize: true, x_expand: true, x_align: Clutter.ActorAlign.END}));
+            b.add_child(row);
+        }
+
+        // achievements
+        const achs = this._store.achievements();
+        const got = achs.filter(a => a.done).length;
+        b.add_child(label(`Achievements · ${got}/${achs.length}`, 'qb-section-title'));
+        const sorted = [...achs.filter(a => !a.done).sort((x, y) => y.cur / y.target - x.cur / x.target), ...achs.filter(a => a.done)];
+        let row = null;
+        sorted.forEach((a, i) => {
+            if (i % 2 === 0) {
+                row = box({style_class: 'qb-tiles'});
+                b.add_child(row);
+            }
+            const c = box({style_class: a.done ? 'qb-ach done' : 'qb-ach', x_expand: true});
+            c.add_child(new St.Bin({style_class: 'qb-ach-icon', child: icon(a.icon), y_align: Clutter.ActorAlign.CENTER}));
+            const m = box({vertical: true, x_expand: true});
+            m.add_child(label(a.title, 'qb-ach-title', {ellipsize: true}));
+            m.add_child(label(a.done ? `${a.desc} · +${a.xp} XP` : `${a.desc} · ${a.cur}/${a.target}`, 'qb-muted', {ellipsize: true}));
+            if (!a.done) {
+                const at = new St.Widget({style_class: 'qb-progress-track', x_expand: true});
+                const af = new St.Widget({style_class: 'qb-progress-fill'});
+                at.add_child(af);
+                at.connect('notify::width', () => af.set_width(Math.round(at.width * a.cur / a.target)));
+                m.add_child(at);
+            }
+            c.add_child(m);
+            row.add_child(c);
+        });
+
+        // the ladder
+        b.add_child(label('Ranks', 'qb-section-title'));
+        const last = Math.max(info.level + 2, RANKS.length);
+        for (let lv = 1; lv <= last; lv++) {
+            const r = box({style_class: lv === info.level ? 'qb-history-row qb-rank-row current' : lv < info.level ? 'qb-history-row qb-rank-row past' : 'qb-history-row qb-rank-row'});
+            r.add_child(label(`Lv ${lv}`, 'qb-rank-lv'));
+            r.add_child(label(rankName(lv), 'qb-rank-row-name', {x_expand: true}));
+            r.add_child(label(`${(50 * lv * (lv - 1)).toLocaleString()} XP`, 'qb-muted'));
+            b.add_child(r);
+        }
     }
 }

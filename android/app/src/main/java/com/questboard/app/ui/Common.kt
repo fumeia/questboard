@@ -31,6 +31,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.layout.Column
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.LocalContext
 import com.questboard.app.data.dueInDays
 import com.questboard.app.data.str
 import org.json.JSONObject
@@ -47,6 +52,9 @@ object C {
     val gold = Color(0xFFF8E45C)
     val orange = Color(0xFFFFA348)
     val red = Color(0xFFE5534B)
+    /** Focus (Pomodoros, focus blocks): violet, so it never looks like a "Do first" quest. */
+    val violet = Color(0xFFC061CB)
+    val ink = Color(0xFF241F31)
     fun quad(id: String) = when (id) {
         "q1" -> Color(0xFFE5534B); "q2" -> Color(0xFF3584E4); "q3" -> Color(0xFFE5A50A); else -> Color(0xFF9A9996)
     }
@@ -104,46 +112,100 @@ fun Check(done: Boolean, onClick: () -> Unit) {
 @Composable
 fun Dot(color: Color, size: Dp = 8.dp) = Box(Modifier.size(size).clip(CircleShape).background(color))
 
-/** One quest line (used in matrix quadrants and the quest list). */
+/** Things one screen asks the whole app to do: show "Deleted … · Undo", open a goal on the Progress tab. */
+object UiBus {
+    val undo = mutableStateOf<Pair<String, () -> Unit>?>(null)
+    val openGoal = mutableStateOf<String?>(null)
+}
+
+fun showUndo(text: String, undo: () -> Unit) { UiBus.undo.value = text to undo }
+
+fun isRpg(q: JSONObject) = q.str("source") == "physics-rpg"
+
+/** Reviews due in the game: the course quest carries progress.respawns, the "respawns due" quest its own count. */
+fun rpgReviews(q: JSONObject): Int {
+    if (!isRpg(q)) return 0
+    if (q.str("kind") == "respawn")
+        return if (q.has("respawns")) q.optInt("respawns") else Regex(": (\\d+) respawns? due").find(q.str("title"))?.groupValues?.get(1)?.toIntOrNull() ?: 0
+    return q.optJSONObject("progress")?.optInt("respawns") ?: 0
+}
+
+/** "Physics RPG · Quantenmechanik: 3 respawns due" was cut short in a quadrant: the game icon and the chip say the rest. */
+fun rowTitle(q: JSONObject): String {
+    val t = q.str("title")
+    if (!isRpg(q) || !t.startsWith("Physics RPG · ")) return t
+    val rest = t.removePrefix("Physics RPG · ")
+    return if (q.str("kind") == "respawn") q.str("topic").ifEmpty { rest.substringBefore(":") } else rest
+}
+
+@Composable
+fun Chip(text: String, color: Color) =
+    Text(text, color = color, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+        modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(color.copy(alpha = 0.16f)).padding(horizontal = 5.dp, vertical = 1.dp))
+
+/**
+ * One quest on two lines: [check] title [steps] [timer / play] on top, the details as small chips below.
+ * compact (matrix quadrants): at most two chips, in the order due date, reviews due, time slot, progress, time.
+ * Physics RPG quests open the game instead of starting a timer (the game records the time; a timer would count it twice).
+ */
 @Composable
 fun QuestRow(q: JSONObject, timeLabel: String, running: Boolean, onOpen: () -> Unit, onCheck: () -> Unit, onPlay: () -> Unit,
-             showDot: Boolean = false) {
+             showDot: Boolean = false, compact: Boolean = false) {
+    val ctx = LocalContext.current
     val done = q.optBoolean("done")
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(onClick = onOpen).padding(vertical = 5.dp, horizontal = 2.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Check(done, onCheck)
-        if (showDot) Dot(C.quad(q.str("quadrant")))
-        Text(q.str("title"), color = if (done) C.muted else C.text, fontSize = 14.sp, maxLines = 2,
-            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        val steps = q.optJSONArray("steps")
-        if (steps != null && steps.length() > 0) {
-            val d = (0 until steps.length()).count { steps.getJSONObject(it).optBoolean("done") }
-            Text("$d/${steps.length()}", fontSize = 11.sp, fontWeight = FontWeight.Bold,
-                color = if (d == steps.length()) C.green else C.muted)
+    val rpg = isRpg(q)
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(onClick = onOpen).padding(vertical = 4.dp, horizontal = 2.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Check(done, onCheck)
+            if (showDot) Dot(C.quad(q.str("quadrant")))
+            if (rpg) QbIcon("game", C.muted, 13.dp)
+            Text(rowTitle(q), color = if (done) C.muted else C.text, fontSize = 14.sp, maxLines = 2,
+                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            val steps = q.optJSONArray("steps")
+            if (steps != null && steps.length() > 0) {
+                val d = (0 until steps.length()).count { steps.getJSONObject(it).optBoolean("done") }
+                Text("$d/${steps.length()}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (d == steps.length()) C.green else C.muted)
+            }
+            if (running && timeLabel.isNotEmpty()) Text(timeLabel, color = C.green, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            if (!done) {
+                val link = q.str("link")
+                if (rpg && link.isNotEmpty()) Box(Modifier.size(30.dp).clip(CircleShape).clickable {
+                    ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
+                }, contentAlignment = Alignment.Center) { QbIcon("game", C.text, 16.dp) }
+                else Box(Modifier.size(30.dp).clip(CircleShape).clickable(onClick = onPlay), contentAlignment = Alignment.Center) {
+                    QbIcon(if (running) "pause" else "play", if (running) C.green else C.muted, 16.dp)
+                }
+            }
         }
-        val ext = q.optJSONObject("progress")  // integration progress (Physics RPG: exercises done of all)
-        if ((steps == null || steps.length() == 0) && ext != null && ext.optInt("total") > 0) {
-            val d = ext.optInt("done").coerceIn(0, ext.optInt("total"))
-            Text("$d/${ext.optInt("total")}", fontSize = 11.sp, fontWeight = FontWeight.Bold,
-                color = if (d == ext.optInt("total")) C.green else C.muted)
-        }
-        if (q.str("source") == "notion") QbIcon("book", C.muted, 12.dp)
+        val chips = mutableListOf<@Composable () -> Unit>()
         val dd = if (done) null else dueInDays(q)
         if (dd != null) {
             val (txt, col) = when {
                 dd < 0 -> "${-dd}d late" to C.red
                 dd == 0L -> "today" to C.red
-                dd == 1L -> "tmrw" to C.orange
-                dd <= 3 -> "${dd}d" to C.orange
-                else -> "${dd}d" to C.muted
+                dd == 1L -> "tomorrow" to C.orange
+                dd <= 3 -> "in ${dd}d" to C.orange
+                else -> "in ${dd}d" to C.muted
             }
-            Text(txt, color = col, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            chips += { Chip(txt, col) }
         }
-        if (timeLabel.isNotEmpty()) Muted(timeLabel, size = 11)
-        if (!done) Box(Modifier.size(30.dp).clip(CircleShape).clickable(onClick = onPlay), contentAlignment = Alignment.Center) {
-            QbIcon(if (running) "pause" else "play", if (running) C.green else C.muted, 16.dp)
+        val reviews = if (done) 0 else rpgReviews(q)
+        if (reviews > 0) chips += { Chip("$reviews review${if (reviews == 1) "" else "s"} due", C.orange) }
+        val sc = q.optJSONObject("scheduled")
+        if (sc != null && sc.has("start")) chips += { Chip(fmtMin(sc.optInt("start")), C.accent) }
+        val steps = q.optJSONArray("steps")
+        val ext = q.optJSONObject("progress")  // integration progress (Physics RPG: exercises done of all)
+        if ((steps == null || steps.length() == 0) && ext != null && ext.optInt("total") > 0) {
+            val d = ext.optInt("done").coerceIn(0, ext.optInt("total"))
+            chips += { Chip("$d/${ext.optInt("total")}", if (d == ext.optInt("total")) C.green else C.muted) }
+        }
+        if (!running && timeLabel.isNotEmpty()) chips += { Muted(timeLabel, size = 11) }
+        val shown = if (compact) chips.take(2) else chips
+        val notion = !compact && q.str("source") == "notion"
+        if (shown.isNotEmpty() || notion) Row(Modifier.padding(start = if (showDot) 46.dp else 30.dp, top = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+            for (c in shown) c()
+            if (notion) QbIcon("book", C.muted, 12.dp)
         }
     }
 }

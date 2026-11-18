@@ -50,6 +50,59 @@ private val DEFAULT_REWARDS = listOf(
     listOf("reward.purchase", "Buy something nice", 1500, "gift"),
 )
 
+// ---- game layer: ranks, daily target, achievements (same tables as extension/store.js) ----------------------------
+
+/** One rank per level, growing in scale like the physics: Lv 1 Point particle … Lv 15 Black hole, then Big Bang. */
+val RANKS = listOf("Point particle", "Free electron", "Harmonic oscillator", "Hydrogen atom", "Spin-½", "Phonon",
+    "Bloch electron", "Cooper pair", "Fermi gas", "White dwarf", "Neutron star", "Supernova", "Pulsar", "Quasar", "Black hole")
+fun rankName(level: Int): String = RANKS.getOrNull(level - 1) ?: "Big Bang"
+
+const val DAILY_XP = 25
+const val DEFAULT_DAILY_TARGET_MIN = 180
+
+/** Where XP comes from (icon, what, how much), for the Level screen. */
+val XP_SOURCES = listOf(
+    Triple("check", "Quest done", "Do first 30 · Schedule 40 · Delegate 15 · Eliminate 5 (Notion: by type)"),
+    Triple("list", "Step done", "10, and finishing all steps adds half the quest XP"),
+    Triple("target", "Pomodoro finished", "10"),
+    Triple("repeat", "Habit check-in", "its XP, +20 % from a 3-day streak, +50 % from 7"),
+    Triple("sun", "Daily focus target reached", "$DAILY_XP"),
+    Triple("star", "Long-term goal reached", "100"),
+    Triple("game", "Physics RPG", "every XP you earn in the game"),
+    Triple("trophy", "Achievement unlocked", "10 – 100, once each"),
+)
+
+data class Achievement(val id: String, val icon: String, val title: String, val desc: String, val metric: String, val target: Int, val xp: Int,
+                       val cur: Int = 0, val done: Boolean = false)
+
+/** Worked out from what is already recorded (nothing new to sync); each pays its XP once (ledger ach.<id>). */
+val ACHIEVEMENTS = listOf(
+    Achievement("first-quest", "check", "First quest", "Complete a quest", "quests", 1, 10),
+    Achievement("quests-50", "check", "Quest log", "Complete 50 quests", "quests", 50, 50),
+    Achievement("pomo-1", "target", "First tomato", "Finish a Pomodoro", "pomodoros", 1, 10),
+    Achievement("pomo-25", "target", "Tomato farmer", "Finish 25 Pomodoros", "pomodoros", 25, 30),
+    Achievement("pomo-100", "target", "Tomato empire", "Finish 100 Pomodoros", "pomodoros", 100, 75),
+    Achievement("focus-10", "stopwatch", "Ten hours deep", "10 h of focus in total", "focusH", 10, 25),
+    Achievement("focus-50", "stopwatch", "Fifty hours", "50 h of focus in total", "focusH", 50, 50),
+    Achievement("focus-100", "stopwatch", "Centurion", "100 h of focus in total", "focusH", 100, 100),
+    Achievement("streak-3", "flame", "Warm-up", "A 3-day streak", "bestStreak", 3, 15),
+    Achievement("streak-7", "flame", "One week strong", "A 7-day streak", "bestStreak", 7, 30),
+    Achievement("streak-14", "flame", "Two weeks", "A 14-day streak", "bestStreak", 14, 50),
+    Achievement("streak-30", "flame", "Unbroken month", "A 30-day streak", "bestStreak", 30, 100),
+    Achievement("daily-1", "sun", "Target hit", "Reach your daily focus target", "dailyHits", 1, 10),
+    Achievement("daily-10", "sun", "Ten good days", "Reach it on 10 days", "dailyHits", 10, 50),
+    Achievement("goal-1", "star", "Goal reached", "Reach a long-term goal", "goals", 1, 25),
+    Achievement("habit-50", "repeat", "Creature of habit", "50 habit check-ins", "checkins", 50, 30),
+    Achievement("rpg-1000", "game", "Lab regular", "1000 XP in the Physics RPG", "rpgXp", 1000, 30),
+    Achievement("rpg-5000", "game", "Lab veteran", "5000 XP in the Physics RPG", "rpgXp", 5000, 75),
+    Achievement("early", "sun", "Early bird", "Start a focus session before 8:00", "early", 1, 15),
+    Achievement("level-5", "sparkle", "Spin-½", "Reach level 5", "level", 5, 25),
+    Achievement("level-10", "sparkle", "White dwarf", "Reach level 10", "level", 10, 50),
+)
+
+data class Rewards(val daily: Boolean, val unlocked: List<Achievement>, val levelUp: Pair<Int, Int>?, val first: Boolean,
+                   val seen: Set<String>, val level: Int)
+
 data class LevelInfo(val level: Int, val into: Int, val span: Int, val frac: Float)
 
 fun levelInfo(xp: Int): LevelInfo {
@@ -303,7 +356,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
             val day = dateKeyOf(l.optLong("at"))
             when (l.str("kind")) {
                 "quest" -> { doneByDay[day] = (doneByDay[day] ?: 0) + 1; active += day }
-                "habit" -> active += day
+                "habit", "daily" -> active += day
                 "rpg" -> if (a > 0) active += day  // a day with Physics RPG XP counts for the streak too
             }
         }
@@ -336,6 +389,85 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         while (days.contains(dateKey(d))) { n++; d = d.minusDays(1) }
         return n
     }
+
+    // ---- game layer ---------------------------------------------------------
+
+    fun dailyHit(key: String = dateKey()) = get("ledger", "daily.$key") != null
+
+    /** Positive XP earned on a day (purchases left out). */
+    fun xpOn(key: String = dateKey()): Int = all("ledger").filter { it.optInt("amount") > 0 && it.str("kind") != "purchase" && dateKeyOf(it.optLong("at")) == key }
+        .sumOf { it.optInt("amount") }
+
+    private fun gameMetrics(): Map<String, Int> {
+        var quests = 0; var pomos = 0; var goals = 0; var daily = 0; var rpg = 0
+        for (l in all("ledger")) when (l.str("kind")) {
+            "quest" -> quests++; "pomodoro" -> pomos++; "goal" -> goals++; "daily" -> daily++; "rpg" -> rpg += l.optInt("amount")
+        }
+        var ms = 0L; var early = 0
+        for (s in all("sessions")) {
+            if (s.str("kind") == "break") continue
+            ms += s.optLong("durationMs")
+            if (early == 0 && s.optLong("start") > 0 && s.optLong("durationMs") >= 20 * 60_000L &&
+                Instant.ofEpochMilli(s.optLong("start")).atZone(ZoneId.systemDefault()).hour < 8) early = 1
+        }
+        return mapOf("quests" to quests, "pomodoros" to pomos, "goals" to goals, "dailyHits" to daily, "rpgXp" to rpg,
+            "focusH" to (ms / 3_600_000L).toInt(), "early" to early, "checkins" to all("checkins").size,
+            "bestStreak" to stats(0).bestStreak, "level" to levelInfo(xp).level)
+    }
+
+    /** Every achievement with its progress. */
+    fun achievements(): List<Achievement> {
+        val m = gameMetrics()
+        return ACHIEVEMENTS.map { a ->
+            val cur = min(a.target, m[a.metric] ?: 0)
+            a.copy(cur = cur, done = colls.getValue("ledger").containsKey("ach.${a.id}") || cur >= a.target)
+        }
+    }
+
+    /**
+     * Pays the daily target and achievements (fixed ids daily.<date> / ach.<id>, so desktop and phone never pay twice) and reports
+     * what to celebrate. seen = achievements already announced here (null on the first run: then everything earned so far is
+     * paid in one go and summed up in one notification).
+     */
+    @Synchronized
+    fun checkRewards(targetMin: Int, seen: Set<String>?, lastLevel: Int, now: Long = System.currentTimeMillis()): Rewards {
+        var changed = false
+        var daily = false
+        val key = dateKeyOf(now)
+        val ledger = colls.getValue("ledger")
+        if (targetMin > 0 && !ledger.containsKey("daily.$key") && focusOn(key, now) >= targetMin * 60_000L) {
+            put("ledger", jobj("id" to "daily.$key", "at" to now, "amount" to DAILY_XP, "kind" to "daily", "note" to "Daily focus target"))
+            cache = null; daily = true; changed = true
+        }
+        val seenNow = (seen ?: emptySet()).toMutableSet()
+        val unlocked = mutableListOf<Achievement>()
+        for (round in 0 until 3) {  // achievements can unlock each other (XP → level)
+            var more = false
+            for (a in achievements()) {
+                if (!a.done || ledger.containsKey("ach.${a.id}")) continue
+                put("ledger", jobj("id" to "ach.${a.id}", "at" to now, "amount" to a.xp, "kind" to "achievement", "note" to a.title))
+                cache = null; changed = true; more = true
+                if (a.id !in seenNow) unlocked += a
+                seenNow += a.id
+            }
+            if (!more) break
+        }
+        for (a in ACHIEVEMENTS) if (ledger.containsKey("ach.${a.id}")) seenNow += a.id
+        val level = levelInfo(xp).level
+        val up = if (lastLevel in 1 until level) lastLevel to level else null
+        if (changed) changed()
+        return Rewards(daily, unlocked, up, seen == null, seenNow, level)
+    }
+
+    /** Puts back a record as it was before a delete (Undo); a newer write, so it wins on every device. */
+    @Synchronized
+    fun restoreRecord(coll: String, rec: JSONObject?) {
+        if (rec == null) return
+        put(coll, rec.copy().apply { remove("deleted"); remove("deletedAt") })
+        changed()
+    }
+
+    private fun snapshot(coll: String, id: String) = get(coll, id)?.copy()
 
     // ---- quests -------------------------------------------------------------
 
@@ -609,7 +741,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
     fun updateGoal(id: String, fields: Map<String, Any?>) { if (patch("goals", id, fields) != null) changed() }
 
     /** Linked quests/steps keep their goalId; it simply no longer resolves. XP stays. */
-    fun deleteGoal(id: String) { del("goals", id); changed() }
+    fun deleteGoal(id: String): JSONObject? { val old = snapshot("goals", id); del("goals", id); changed(); return old }
 
     /** Deadline pace for a goal with a targetDate (YYYY-MM-DD), or null without one. */
     data class GoalPace(val daysLeft: Long, val expected: Float, val frac: Float, val onTrack: Boolean)
@@ -843,7 +975,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
     }
 
     fun updateHabit(id: String, fields: Map<String, Any?>) { if (patch("habits", id, fields) != null) changed() }
-    fun deleteHabit(id: String) { del("habits", id); changed() }
+    fun deleteHabit(id: String): JSONObject? { val old = snapshot("habits", id); del("habits", id); changed(); return old }
     fun isChecked(habitId: String, key: String = dateKey()) = derived().checkins.contains("$habitId.$key")
 
     fun habitStreak(habitId: String): Int {
@@ -893,7 +1025,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
     }
 
     fun updateReward(id: String, fields: Map<String, Any?>) { if (patch("rewards", id, fields) != null) changed() }
-    fun deleteReward(id: String) { del("rewards", id); changed() }
+    fun deleteReward(id: String): JSONObject? { val old = snapshot("rewards", id); del("rewards", id); changed(); return old }
 
     fun buy(rewardId: String): Boolean {
         val r = get("rewards", rewardId) ?: return false

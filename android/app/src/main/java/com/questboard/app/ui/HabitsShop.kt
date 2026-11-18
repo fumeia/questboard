@@ -134,7 +134,6 @@ private fun HabitDialog(app: QuestboardApp, h: JSONObject?, onDone: () -> Unit) 
     var icon by remember { mutableStateOf(h?.str("icon", "star") ?: "star") }
     var xp by remember { mutableStateOf(h?.optInt("xp", 10) ?: 10) }
     var target by remember { mutableStateOf(h?.optInt("target", 7) ?: 7) }
-    var confirm by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDone, containerColor = C.surface,
         title = { Text(if (h == null) "New habit" else "Edit habit") },
@@ -149,8 +148,10 @@ private fun HabitDialog(app: QuestboardApp, h: JSONObject?, onDone: () -> Unit) 
                     for (x in listOf(5, 10, 20, 30, 50)) Pill("$x XP", if (xp == x) C.gold.copy(alpha = 0.6f) else C.card) { xp = x }
                 }
                 if (h != null) {
-                    if (confirm) Pill("Really delete (history stays)", C.red) { app.store.deleteHabit(h.str("id")); onDone() }
-                    else Pill("Delete habit", Color.Transparent, C.red) { confirm = true }
+                    Pill("Delete habit (history stays)", Color.Transparent, C.red) {
+                        val old = app.store.deleteHabit(h.str("id")); onDone()
+                        showUndo("Deleted habit “${h.str("title")}”") { app.store.restoreRecord("habits", old) }
+                    }
                 }
             }
         },
@@ -239,7 +240,6 @@ private fun RewardDialog(app: QuestboardApp, r: JSONObject?, onDone: () -> Unit)
     var cost by remember { mutableStateOf(r?.optInt("cost")?.toString() ?: "") }
     var icon by remember { mutableStateOf(r?.str("icon", "gift") ?: "gift") }
     var repeat by remember { mutableStateOf(r?.optBoolean("repeatable", true) ?: true) }
-    var confirm by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDone, containerColor = C.surface,
         title = { Text(if (r == null) "New reward" else "Edit reward") },
@@ -255,8 +255,10 @@ private fun RewardDialog(app: QuestboardApp, r: JSONObject?, onDone: () -> Unit)
                 }
                 IconPicker(icon) { icon = it }
                 if (r != null) {
-                    if (confirm) Pill("Really delete", C.red) { app.store.deleteReward(r.str("id")); onDone() }
-                    else Pill("Delete reward", Color.Transparent, C.red) { confirm = true }
+                    Pill("Delete reward", Color.Transparent, C.red) {
+                        val old = app.store.deleteReward(r.str("id")); onDone()
+                        showUndo("Deleted reward “${r.str("title")}”") { app.store.restoreRecord("rewards", old) }
+                    }
                 }
             }
         },

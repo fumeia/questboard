@@ -58,6 +58,54 @@ export function dueInDays(q, now = new Date()) {
 const DAY_MS = 86400000;
 const TOMBSTONE_TTL = 60 * DAY_MS;
 
+// ---- game layer: ranks, daily target, achievements (same tables in Store.kt) -----------------------------------
+
+/** One rank per level, growing in scale like the physics: Lv 1 Point particle … Lv 15 Black hole, then Big Bang. */
+export const RANKS = ['Point particle', 'Free electron', 'Harmonic oscillator', 'Hydrogen atom', 'Spin-½', 'Phonon',
+    'Bloch electron', 'Cooper pair', 'Fermi gas', 'White dwarf', 'Neutron star', 'Supernova', 'Pulsar', 'Quasar', 'Black hole'];
+export const rankName = level => RANKS[Math.min(level, RANKS.length + 1) - 1] ?? 'Big Bang';
+
+/** Reaching the daily focus target (focus timers + Physics RPG study time) pays this once per day. */
+export const DAILY_XP = 25;
+export const DEFAULT_DAILY_TARGET_MIN = 180;
+
+/** Where XP comes from, for the Level page. */
+export const XP_SOURCES = [
+    ['qb-check', 'Quest done', 'Do first 30 · Schedule 40 · Delegate 15 · Eliminate 5 (Notion: by type)'],
+    ['qb-list', 'Step done', '10, and finishing all steps adds half the quest XP'],
+    ['qb-target', 'Pomodoro finished', '10'],
+    ['qb-repeat', 'Habit check-in', 'its XP, +20 % from a 3-day streak, +50 % from 7'],
+    ['qb-sun', 'Daily focus target reached', String(DAILY_XP)],
+    ['qb-star', 'Long-term goal reached', '100'],
+    ['qb-game', 'Physics RPG', 'every XP you earn in the game'],
+    ['qb-trophy', 'Achievement unlocked', '10 – 100, once each'],
+];
+
+/** Achievements: worked out from what is already recorded (nothing new to sync); each pays its XP once (ledger ach.<id>). */
+export const ACHIEVEMENTS = [
+    ['first-quest', 'qb-check', 'First quest', 'Complete a quest', 'quests', 1, 10],
+    ['quests-50', 'qb-check', 'Quest log', 'Complete 50 quests', 'quests', 50, 50],
+    ['pomo-1', 'qb-target', 'First tomato', 'Finish a Pomodoro', 'pomodoros', 1, 10],
+    ['pomo-25', 'qb-target', 'Tomato farmer', 'Finish 25 Pomodoros', 'pomodoros', 25, 30],
+    ['pomo-100', 'qb-target', 'Tomato empire', 'Finish 100 Pomodoros', 'pomodoros', 100, 75],
+    ['focus-10', 'qb-stopwatch', 'Ten hours deep', '10 h of focus in total', 'focusH', 10, 25],
+    ['focus-50', 'qb-stopwatch', 'Fifty hours', '50 h of focus in total', 'focusH', 50, 50],
+    ['focus-100', 'qb-stopwatch', 'Centurion', '100 h of focus in total', 'focusH', 100, 100],
+    ['streak-3', 'qb-flame', 'Warm-up', 'A 3-day streak', 'bestStreak', 3, 15],
+    ['streak-7', 'qb-flame', 'One week strong', 'A 7-day streak', 'bestStreak', 7, 30],
+    ['streak-14', 'qb-flame', 'Two weeks', 'A 14-day streak', 'bestStreak', 14, 50],
+    ['streak-30', 'qb-flame', 'Unbroken month', 'A 30-day streak', 'bestStreak', 30, 100],
+    ['daily-1', 'qb-sun', 'Target hit', 'Reach your daily focus target', 'dailyHits', 1, 10],
+    ['daily-10', 'qb-sun', 'Ten good days', 'Reach it on 10 days', 'dailyHits', 10, 50],
+    ['goal-1', 'qb-star', 'Goal reached', 'Reach a long-term goal', 'goals', 1, 25],
+    ['habit-50', 'qb-repeat', 'Creature of habit', '50 habit check-ins', 'checkins', 50, 30],
+    ['rpg-1000', 'qb-game', 'Lab regular', '1000 XP in the Physics RPG', 'rpgXp', 1000, 30],
+    ['rpg-5000', 'qb-game', 'Lab veteran', '5000 XP in the Physics RPG', 'rpgXp', 5000, 75],
+    ['early', 'qb-sun', 'Early bird', 'Start a focus session before 8:00', 'early', 1, 15],
+    ['level-5', 'qb-sparkle', 'Spin-½', 'Reach level 5', 'level', 5, 25],
+    ['level-10', 'qb-sparkle', 'White dwarf', 'Reach level 10', 'level', 10, 50],
+].map(([id, icon, title, desc, metric, target, xp]) => ({id, icon, title, desc, metric, target, xp}));
+
 /** XP needed to *reach* level L is 50·L·(L-1): 0, 100, 300, 600, 1000 … */
 export function levelInfo(xp) {
     let level = 1;
@@ -398,7 +446,7 @@ export class Store {
             if (l.kind === 'quest') {
                 doneByDay[day] = (doneByDay[day] ?? 0) + 1;
                 activeDays.add(day);
-            } else if (l.kind === 'habit' || (l.kind === 'rpg' && l.amount > 0)) {
+            } else if (l.kind === 'habit' || l.kind === 'daily' || (l.kind === 'rpg' && l.amount > 0)) {
                 activeDays.add(day);  // a day with Physics RPG XP counts for the streak too
             }
         }
@@ -450,6 +498,122 @@ export class Store {
             d.setDate(d.getDate() - 1);
         }
         return n;
+    }
+
+    // ---- game layer --------------------------------------------------------
+
+    /** Daily focus target in minutes (this device's choice; 0 = off). */
+    get dailyTargetMin() {
+        return this.data.dailyTargetMin ?? DEFAULT_DAILY_TARGET_MIN;
+    }
+
+    setDailyTarget(min) {
+        this.data.dailyTargetMin = Math.max(0, Math.min(12 * 60, Math.round(min)));
+        this._changed();
+    }
+
+    dailyHit(key = dateKey()) {
+        return !!this.get('ledger', `daily.${key}`);
+    }
+
+    /** Positive XP earned on a day, by ledger kind. */
+    xpOn(key = dateKey()) {
+        const by = {};
+        let total = 0;
+        for (const l of this.all('ledger')) {
+            if (l.amount <= 0 || l.kind === 'purchase' || dateKey(new Date(l.at)) !== key)
+                continue;
+            by[l.kind] = (by[l.kind] ?? 0) + l.amount;
+            total += l.amount;
+        }
+        return {total, by};
+    }
+
+    /** Numbers the achievements are measured by. */
+    _gameMetrics() {
+        const m = {quests: 0, pomodoros: 0, goals: 0, dailyHits: 0, rpgXp: 0, focusH: 0, early: 0, checkins: this.all('checkins').length};
+        for (const l of this.all('ledger')) {
+            if (l.kind === 'quest')
+                m.quests++;
+            else if (l.kind === 'pomodoro')
+                m.pomodoros++;
+            else if (l.kind === 'goal')
+                m.goals++;
+            else if (l.kind === 'daily')
+                m.dailyHits++;
+            else if (l.kind === 'rpg')
+                m.rpgXp += l.amount;
+        }
+        let ms = 0;
+        for (const s of this.all('sessions')) {
+            if (s.kind === 'break')
+                continue;
+            ms += s.durationMs ?? 0;
+            if (!m.early && s.start && (s.durationMs ?? 0) >= 20 * 60000 && new Date(s.start).getHours() < 8)
+                m.early = 1;
+        }
+        m.focusH = Math.floor(ms / 3600000);
+        m.bestStreak = this.stats(0).bestStreak;
+        m.level = levelInfo(this.xp).level;
+        return m;
+    }
+
+    /** Every achievement with its progress: {id, icon, title, desc, target, xp, cur, done, at?}. */
+    achievements() {
+        const m = this._gameMetrics();
+        return ACHIEVEMENTS.map(a => {
+            const paid = this.data.colls.ledger[`ach.${a.id}`];
+            const cur = Math.min(a.target, m[a.metric] ?? 0);
+            return {...a, cur, done: !!paid || cur >= a.target, at: paid && !paid.deleted ? paid.at : null};
+        });
+    }
+
+    /**
+     * Pays what was earned and reports what to celebrate: {daily, unlocked: [achievement], levelUp: {from, to}|null, first}.
+     * Ids are fixed (daily.<date>, ach.<id>), so the phone and the desktop never pay twice. Run every 30 s and on open.
+     */
+    checkRewards(now = Date.now()) {
+        const out = {daily: false, unlocked: [], levelUp: null, first: !this.data.achSeen};
+        let changed = false;
+        const key = dateKey(new Date(now));
+        const target = this.dailyTargetMin;
+        if (target > 0 && !this.data.colls.ledger[`daily.${key}`] && this.focusOn(key, now) >= target * 60000) {
+            this._put('ledger', {id: `daily.${key}`, at: now, amount: DAILY_XP, kind: 'daily', note: 'Daily focus target'});
+            out.daily = true;
+            changed = true;
+            this._cache = null;
+        }
+        // achievements can unlock each other (XP → level), so a few rounds
+        const seen = new Set(this.data.achSeen ?? []);
+        for (let round = 0; round < 3; round++) {
+            let more = false;
+            for (const a of this.achievements()) {
+                if (!a.done || this.data.colls.ledger[`ach.${a.id}`])
+                    continue;
+                this._put('ledger', {id: `ach.${a.id}`, at: now, amount: a.xp, kind: 'achievement', note: a.title});
+                this._cache = null;
+                changed = more = true;
+                if (!seen.has(a.id))
+                    out.unlocked.push(a);
+                seen.add(a.id);
+            }
+            if (!more)
+                break;
+        }
+        for (const a of ACHIEVEMENTS)
+            if (this.data.colls.ledger[`ach.${a.id}`])
+                seen.add(a.id);  // paid on the other device: no notification here
+        this.data.achSeen = [...seen];
+        const level = levelInfo(this.xp).level;
+        if (this.data.lastLevel && level > this.data.lastLevel)
+            out.levelUp = {from: this.data.lastLevel, to: level};
+        if (this.data.lastLevel !== level) {
+            this.data.lastLevel = level;
+            changed = true;
+        }
+        if (changed)
+            this._changed();
+        return out;
     }
 
     // ---- quests ----------------------------------------------------------

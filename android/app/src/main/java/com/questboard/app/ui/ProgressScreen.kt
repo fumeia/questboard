@@ -64,6 +64,9 @@ fun ProgressScreen(app: QuestboardApp, v: Int, now: Long) {
     var newGoal by remember { mutableStateOf("") }
     var expanded by remember { mutableStateOf(setOf<String>()) }
     var openQuest by remember { mutableStateOf<String?>(null) }
+    // a deadline chip under the header opens its goal here
+    val wanted = UiBus.openGoal.value
+    LaunchedEffect(wanted) { if (wanted != null) { expanded = expanded + wanted; UiBus.openGoal.value = null } }
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Text("This week", fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.padding(top = 10.dp))

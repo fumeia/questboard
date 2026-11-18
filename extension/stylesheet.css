@@ -469,8 +469,10 @@
 .qb-light .qb-chart-btn { padding: 0; border-radius: 4px; }
 .qb-dark .qb-chart-btn:hover { background-color: rgba(255,255,255,0.06); }
 .qb-light .qb-chart-btn:hover { background-color: rgba(0,0,0,0.054); }
-.qb-dark .qb-stack { border-radius: 3px 3px 0 0; }
-.qb-light .qb-stack { border-radius: 3px 3px 0 0; }
+.qb-dark .qb-stack { width: 18px; border-radius: 3px 3px 0 0; }
+.qb-light .qb-stack { width: 18px; border-radius: 3px 3px 0 0; }
+.qb-dark .qb-chart-month .qb-stack { width: 7px; border-radius: 2px 2px 0 0; }
+.qb-light .qb-chart-month .qb-stack { width: 7px; border-radius: 2px 2px 0 0; }
 .qb-dark .qb-stack.picked { border: 1px solid rgba(255,255,255,0.85); }
 .qb-light .qb-stack.picked { border: 1px solid rgba(0,0,0,0.85); }
 .qb-dark .qb-goal-swatch { width: 10px; height: 10px; border-radius: 5px; margin-right: 6px; }
@@ -489,6 +491,42 @@
 .qb-light .qb-heat-month { width: 10px; font-size: 0.6em; color: rgba(0,0,0,0.605); }
 .qb-dark .qb-trash-link { padding: 2px 6px; margin-top: 2px; font-size: 0.88em; }
 .qb-light .qb-trash-link { padding: 2px 6px; margin-top: 2px; font-size: 0.88em; }
+.qb-dark .qb-level-btn { padding: 2px 4px; }
+.qb-light .qb-level-btn { padding: 2px 4px; }
+.qb-dark .qb-target-hit { color: #57e389; font-weight: bold; }
+.qb-light .qb-target-hit { color: #57e389; font-weight: bold; }
+.qb-dark .qb-rank-card { spacing: 6px; padding: 12px; border-radius: 12px; background-color: rgba(246,211,45,0.1); border: 1px solid rgba(246,211,45,0.3); }
+.qb-light .qb-rank-card { spacing: 6px; padding: 12px; border-radius: 12px; background-color: rgba(246,211,45,0.1); border: 1px solid rgba(246,211,45,0.3); }
+.qb-dark .qb-rank-badge { font-size: 1em; padding: 6px 12px; }
+.qb-light .qb-rank-badge { font-size: 1em; padding: 6px 12px; }
+.qb-dark .qb-rank-name { font-size: 1.6em; font-weight: 800; }
+.qb-light .qb-rank-name { font-size: 1.6em; font-weight: 800; }
+.qb-dark .qb-rank-track { height: 8px; border-radius: 4px; background-color: rgba(255,255,255,0.12); }
+.qb-light .qb-rank-track { height: 8px; border-radius: 4px; background-color: rgba(0,0,0,0.108); }
+.qb-dark .qb-rank-fill { height: 8px; border-radius: 4px; background-color: #f6d32d; }
+.qb-light .qb-rank-fill { height: 8px; border-radius: 4px; background-color: #f6d32d; }
+.qb-dark .qb-ach { spacing: 8px; padding: 8px; border-radius: 10px; background-color: rgba(255,255,255,0.04); border: 1px dashed rgba(255,255,255,0.15); }
+.qb-light .qb-ach { spacing: 8px; padding: 8px; border-radius: 10px; background-color: rgba(0,0,0,0.036); border: 1px dashed rgba(0,0,0,0.135); }
+.qb-dark .qb-ach.done { background-color: rgba(246,211,45,0.12); border: 1px solid rgba(246,211,45,0.4); }
+.qb-light .qb-ach.done { background-color: rgba(246,211,45,0.12); border: 1px solid rgba(246,211,45,0.4); }
+.qb-dark .qb-ach-icon { border-radius: 99px; padding: 6px; background-color: rgba(255,255,255,0.08); }
+.qb-light .qb-ach-icon { border-radius: 99px; padding: 6px; background-color: rgba(0,0,0,0.072); }
+.qb-dark .qb-ach.done .qb-ach-icon { background-color: #f6d32d; color: #241f31; }
+.qb-light .qb-ach.done .qb-ach-icon { background-color: #f6d32d; color: #241f31; }
+.qb-dark .qb-ach-title { font-weight: bold; font-size: 0.88em; }
+.qb-light .qb-ach-title { font-weight: bold; font-size: 0.88em; }
+.qb-dark .qb-ach .qb-ach-title { color: rgba(255,255,255,0.7); }
+.qb-light .qb-ach .qb-ach-title { color: rgba(0,0,0,0.77); }
+.qb-dark .qb-ach.done .qb-ach-title { color: #fff; }
+.qb-light .qb-ach.done .qb-ach-title { color: #1d1d20; }
+.qb-dark .qb-rank-row { padding: 3px 6px; border-radius: 6px; }
+.qb-light .qb-rank-row { padding: 3px 6px; border-radius: 6px; }
+.qb-dark .qb-rank-row.current { background-color: rgba(246,211,45,0.2); font-weight: bold; }
+.qb-light .qb-rank-row.current { background-color: rgba(246,211,45,0.2); font-weight: bold; }
+.qb-dark .qb-rank-row.past .qb-rank-row-name { color: rgba(255,255,255,0.55); }
+.qb-light .qb-rank-row.past .qb-rank-row-name { color: rgba(0,0,0,0.605); }
+.qb-dark .qb-rank-lv { min-width: 48px; font-weight: bold; font-feature-settings: "tnum"; }
+.qb-light .qb-rank-lv { min-width: 48px; font-weight: bold; font-feature-settings: "tnum"; }
 .qb-dark .qb-cal { spacing: 6px; padding: 8px; border-radius: 12px; background-color: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); }
 .qb-light .qb-cal { spacing: 6px; padding: 8px; border-radius: 12px; background-color: rgba(0,0,0,0.036); border: 1px solid rgba(0,0,0,0.054); }
 .qb-dark .qb-cal-head { spacing: 2px; }
@@ -619,3 +657,5 @@
 .qb-light .qb-running .qb-icon { color: #1a7f37; }
 .qb-light .qb-level-badge { background-color: #f6d32d; color: #241f31; }
 .qb-light .qb-xp-fill { background-color: #e5a50a; }
+.qb-light .qb-target-hit { color: #1a7f37; }
+.qb-light .qb-rank-fill { background-color: #e5a50a; }

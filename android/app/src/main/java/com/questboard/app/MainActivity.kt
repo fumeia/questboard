@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -42,7 +44,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.ui.text.style.TextOverflow
+import com.questboard.app.data.DAILY_XP
+import com.questboard.app.data.dateKey
 import com.questboard.app.data.levelInfo
+import com.questboard.app.data.rankName
+import com.questboard.app.data.str
+import com.questboard.app.ui.LevelScreen
+import com.questboard.app.ui.UiBus
 import com.questboard.app.ui.Bar
 import com.questboard.app.ui.C
 import com.questboard.app.ui.CalendarScreen
@@ -113,10 +128,27 @@ class MainActivity : ComponentActivity() {
             .onFailure { app.log.exception("lernplan", it) }
     }
 
+    /** Pay the daily target and achievements, and say so (every 30 s while open, and on resume). */
+    private fun rewards() {
+        val st = app.settings
+        val r = runCatching {
+            app.store.checkRewards(st.dailyTargetMin, st.achSeen?.split(',')?.filter { it.isNotEmpty() }?.toSet(), st.lastLevel)
+        }.onFailure { app.log.exception("rewards", it) }.getOrNull() ?: return
+        st.achSeen = r.seen.joinToString(","); st.lastLevel = r.level
+        r.levelUp?.let { (_, to) -> app.notifier.alert(9101, "Level up · Lv $to", "You are now a ${rankName(to)}. Tap the level badge to see what comes next.", "level") }
+        if (r.daily) app.notifier.alert(9102, "Daily focus target reached · +$DAILY_XP XP", "That counts for the streak too. Anything more today is a bonus.", "level")
+        if (r.unlocked.isNotEmpty()) {
+            if (r.first) app.notifier.alert(9103, "${r.unlocked.size} achievements for what you already did · +${r.unlocked.sumOf { it.xp }} XP",
+                r.unlocked.joinToString(" · ") { it.title }, "level")
+            else for (a in r.unlocked) app.notifier.alert(9200 + a.id.hashCode() % 500, "Achievement: ${a.title} · +${a.xp} XP", a.desc, "level")
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         lifecycleScope.launch {
             app.store.tick()
+            rewards()
             lernplan()
             app.alarms.refresh(app)
             app.sync.syncNow("open")
@@ -140,13 +172,25 @@ class MainActivity : ComponentActivity() {
                 delay(1000)
             }
         }
+        LaunchedEffect(Unit) { while (true) { delay(30_000); rewards() } }
+        // "Deleted … · Undo" from any screen
+        val snack = remember { SnackbarHostState() }
+        val undo = UiBus.undo.value
+        LaunchedEffect(undo) {
+            if (undo == null) return@LaunchedEffect
+            val res = snack.showSnackbar(undo.first, actionLabel = "Undo", withDismissAction = true, duration = SnackbarDuration.Short)
+            if (res == SnackbarResult.ActionPerformed) undo.second()
+            if (UiBus.undo.value === undo) UiBus.undo.value = null
+        }
         Scaffold(
             containerColor = C.bg,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             bottomBar = { if (tab.value != "settings") BottomNav() },
+            snackbarHost = { SnackbarHost(snack) },
         ) { pad ->
             Column(Modifier.fillMaxSize().padding(pad)) {
                 Header(v, now)
+                Deadlines(v, now)
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     when (tab.value) {
                         "matrix" -> MatrixScreen(app, v, now)
@@ -156,6 +200,7 @@ class MainActivity : ComponentActivity() {
                         "shop" -> ShopScreen(app, v)
                         "settings" -> SettingsScreen(app) { tab.value = "matrix" }
                         "progress", "stats" -> ProgressScreen(app, v, now)
+                        "level" -> LevelScreen(app, v, now) { tab.value = "matrix" }
                     }
                 }
             }
@@ -172,13 +217,16 @@ class MainActivity : ComponentActivity() {
           // Stats take what's left and scroll sideways on narrow phones; the timer chip,
           // sync and settings icons on the right always stay visible.
           Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.clip(RoundedCornerShape(50)).background(C.accent).clickable { tab.value = "progress" }.padding(horizontal = 10.dp, vertical = 3.dp)) {
-                Text("Lv ${info.level}", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = C.text)
-            }
-            HSpace(8.dp)
-            Column(Modifier.width(76.dp)) {
-                Bar(info.frac, C.gold)
-                Muted("${info.into}/${info.span} XP", size = 10)
+            // the badge explains itself: a tap opens the Level screen (ranks, where XP comes from, achievements)
+            Row(Modifier.clip(RoundedCornerShape(8.dp)).clickable { tab.value = "level" }, verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.clip(RoundedCornerShape(50)).background(C.gold).padding(horizontal = 10.dp, vertical = 3.dp)) {
+                    Text("Lv ${info.level}", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = C.ink)
+                }
+                HSpace(8.dp)
+                Column(Modifier.width(96.dp)) {
+                    Bar(info.frac, C.gold)
+                    Muted("${rankName(info.level)} · ${info.into}/${info.span}", size = 10)
+                }
             }
             HSpace(10.dp)
             Row(Modifier.clickable { tab.value = "shop" }, verticalAlignment = Alignment.CenterVertically) {
@@ -190,9 +238,14 @@ class MainActivity : ComponentActivity() {
                 HSpace(10.dp); QbIcon("flame", C.orange, 15.dp); HSpace(2.dp)
                 Text("${streak}d", color = C.orange, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
-            HSpace(10.dp); QbIcon("check", C.muted, 14.dp); HSpace(2.dp); Muted("${s.completedOn()}", size = 13)
-            val focus = fmtSpent(s.focusOn(now = now))
-            if (focus.isNotEmpty()) { HSpace(8.dp); QbIcon("stopwatch", C.muted, 14.dp); HSpace(2.dp); Muted(focus, size = 13) }
+            HSpace(10.dp); QbIcon("check", C.muted, 14.dp); HSpace(2.dp); Muted("${s.completedOn()} done", size = 13)
+            // focus today against the daily target ("1h 34m / 3h"); green with a tick once reached
+            val focus = fmtSpent(s.focusOn(now = now)).ifEmpty { "0m" }
+            val target = app.settings.dailyTargetMin
+            val hit = remember(v) { s.dailyHit() }
+            HSpace(8.dp); QbIcon("stopwatch", if (hit) C.green else C.muted, 14.dp); HSpace(2.dp)
+            if (hit) Text("$focus ✓", color = C.green, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            else Muted(if (target > 0) "$focus / ${fmtSpent(target * 60_000L)}" else focus, size = 13)
             HSpace(6.dp)
           }
             val t = s.runningTimers().firstOrNull()
@@ -208,6 +261,31 @@ class MainActivity : ComponentActivity() {
             IconBtn(if (off || sync.state == "error") "cloud-off" else "cloud", { lifecycleScope.launch { app.sync.syncNow("manual") } },
                 tint = when { off -> C.muted; sync.state == "error" -> C.red; sync.state == "syncing" -> C.accent; else -> C.text }, size = 18.dp)
             IconBtn("bug", { tab.value = "settings" }, tint = C.muted, size = 18.dp)
+        }
+    }
+
+    /** Goals with a date (exams): days left, red when behind pace. A tap opens the goal on the Progress tab. */
+    @Composable
+    private fun Deadlines(v: Int, now: Long) {
+        val s = app.store
+        val today = dateKey()
+        val goals = remember(v) { s.goals().filter { !it.optBoolean("done") && it.str("targetDate").isNotEmpty() && it.str("targetDate") >= today }
+            .sortedBy { it.str("targetDate") } }
+        if (goals.isEmpty()) return
+        LazyRow(Modifier.fillMaxWidth().background(C.surface).padding(start = 10.dp, end = 10.dp, bottom = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            item { QbIcon("target", C.muted, 14.dp) }
+            items(goals, key = { it.str("id") }) { g ->
+                val pace = s.goalPace(g.str("id"), now)
+                val days = pace?.daysLeft ?: 0L
+                val bg = when { pace != null && !pace.onTrack -> C.red.copy(alpha = 0.4f); days <= 7 -> C.orange.copy(alpha = 0.3f); else -> C.card }
+                Row(Modifier.clip(RoundedCornerShape(50)).background(bg).clickable { UiBus.openGoal.value = g.str("id"); tab.value = "progress" }
+                    .padding(horizontal = 10.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(g.str("title"), fontSize = 12.sp, color = C.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 120.dp))
+                    HSpace(6.dp)
+                    Text(if (days == 0L) "today" else "${days}d", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = C.text)
+                }
+            }
         }
     }
 

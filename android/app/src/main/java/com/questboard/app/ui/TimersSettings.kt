@@ -66,7 +66,7 @@ private fun savePresets(app: QuestboardApp, list: List<Preset>) {
 }
 
 private val KINDS = listOf("pomodoro" to "Focus", "break" to "Break", "custom" to "Countdown", "stopwatch" to "Stopwatch")
-private fun kindColor(kind: String) = when (kind) { "pomodoro" -> C.red; "break" -> C.accent; "stopwatch" -> C.green; else -> C.gold }
+private fun kindColor(kind: String) = when (kind) { "pomodoro" -> C.violet; "break" -> C.accent; "stopwatch" -> C.green; else -> C.gold }
 
 /** Start any timer the same way: Focus (Pomodoro, +10 XP), Break, Countdown or Stopwatch, optional label and quest. */
 private fun startKind(app: QuestboardApp, kind: String, min: Int, label: String?, questId: String?) {
@@ -93,23 +93,48 @@ fun TimersScreen(app: QuestboardApp, v: Int, now: Long) {
     var presets by remember { mutableStateOf(loadPresets(st.timerPresets)) }
     var editPresets by remember { mutableStateOf(false) }
     var autoBreak by remember { mutableStateOf(st.autoBreak) }
+    var showForm by remember { mutableStateOf(false) }
     val timers = remember(v) { s.timers.toList() }
 
-    fun setMin(m: Int) {
-        val c = m.coerceIn(1, 600)
-        minutes = c
-        when (kind) { "pomodoro" -> st.pomodoroMin = c; "break" -> { st.breakMin = c; if (st.autoBreak) s.autoBreakMin = c }; "custom" -> st.countdownMin = c }
-    }
+    // minutes for the next timer only: the default lengths stay as set in Settings (and in presets)
+    fun setMin(m: Int) { minutes = m.coerceIn(1, 600) }
 
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // ---- new timer
+        // ---- your timers first
+        if (timers.isEmpty()) item { Muted("No timer yet. Start one below, or press play on any quest.", Modifier.padding(top = 10.dp), 14) }
+        if (timers.isNotEmpty()) item { HSpace(0.dp) }
+        items(timers, key = { it.id }) { t -> TimerCard(app, t, now, pickerFor == t.id, { pickerFor = if (pickerFor == t.id) null else t.id }) { pickerFor = null } }
+        // ---- presets: one tap starts (with the quest chosen above)
         item {
-            Column(Modifier.padding(top = 10.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.card).padding(12.dp),
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Start a timer", fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                if (presets.isNotEmpty()) TextButton(onClick = { editPresets = !editPresets }) { Text(if (editPresets) "Done" else "Edit presets") }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Muted("Counts toward ", size = 13)
+                Pill(link?.let { s.getQuest(it)?.str("title") } ?: "no quest", C.surface) { pickerFor = if (pickerFor == "new") null else "new" }
+                if (link != null) IconBtn("close", { link = null }, C.muted, 14.dp)
+            }
+            if (pickerFor == "new") QuestPicker(app, link) { link = it; pickerFor = null }
+            if (presets.isEmpty()) Muted("Set up a timer below and tap “Save as preset” to start it with one tap next time.", size = 12)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                presets.forEachIndexed { i, p ->
+                    val text = p.label + if (p.kind != "stopwatch") " · ${p.min}m" else ""
+                    if (editPresets) Pill("Remove $text", C.red.copy(alpha = 0.3f)) { presets = presets.filterIndexed { j, _ -> j != i }; savePresets(app, presets) }
+                    else Pill(text, kindColor(p.kind).copy(alpha = 0.35f)) { startKind(app, p.kind, p.min, p.label, if (p.kind == "break") null else link) }
+                }
+                if (presets.isNotEmpty() && !showForm) Pill("+ Custom timer", C.accent.copy(alpha = 0.45f)) { showForm = true }
+            }
+        }
+        // ---- custom timer (folded away while there are presets)
+        if (showForm || presets.isEmpty()) item {
+            Column(Modifier.padding(top = 4.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(C.card).padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     for ((k, name) in KINDS) Pill(name, if (k == kind) kindColor(k).copy(alpha = 0.55f) else C.surface) {
                         kind = k; minutes = defaultMin(k)
                     }
+                    if (presets.isNotEmpty()) Pill("Close", C.surface) { showForm = false }
                 }
                 if (kind != "stopwatch") {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -126,17 +151,9 @@ fun TimersScreen(app: QuestboardApp, v: Int, now: Long) {
                 }
                 OutlinedTextField(label, { label = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                     placeholder = { Text(if (kind == "break") "Break" else "Label (optional, else the quest's name)") })
-                if (kind != "break") {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Muted("Counts toward ", size = 13)
-                        Pill(link?.let { s.getQuest(it)?.str("title") } ?: "no quest", C.surface) { pickerFor = if (pickerFor == "new") null else "new" }
-                        if (link != null) IconBtn("close", { link = null }, C.muted, 14.dp)
-                    }
-                    if (pickerFor == "new") QuestPicker(app, link) { link = it; pickerFor = null }
-                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.weight(1f).clip(RoundedCornerShape(50)).background(kindColor(kind).copy(alpha = 0.6f))
-                        .clickable { startKind(app, kind, minutes, label, if (kind == "break") null else link); label = "" }
+                        .clickable { startKind(app, kind, minutes, label, if (kind == "break") null else link); label = ""; showForm = false }
                         .padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
                         Text("Start ${KINDS.first { it.first == kind }.second.lowercase()}" + if (kind != "stopwatch") " · $minutes min" else "",
                             fontWeight = FontWeight.Bold, fontSize = 15.sp)
@@ -157,24 +174,6 @@ fun TimersScreen(app: QuestboardApp, v: Int, now: Long) {
                 }
             }
         }
-        // ---- presets: one tap starts (with the quest chosen above)
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Presets", fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                if (presets.isNotEmpty()) TextButton(onClick = { editPresets = !editPresets }) { Text(if (editPresets) "Done" else "Edit") }
-            }
-            if (presets.isEmpty()) Muted("Set up a timer above and tap “Save as preset”.", size = 12)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                presets.forEachIndexed { i, p ->
-                    val text = p.label + if (p.kind != "stopwatch") " · ${p.min}m" else ""
-                    if (editPresets) Pill("✕  $text", C.red.copy(alpha = 0.3f)) { presets = presets.filterIndexed { j, _ -> j != i }; savePresets(app, presets) }
-                    else Pill(text, kindColor(p.kind).copy(alpha = 0.35f)) { startKind(app, p.kind, p.min, p.label, if (p.kind == "break") null else link) }
-                }
-            }
-        }
-        // ---- running and paused timers
-        if (timers.isEmpty()) item { Muted("No timers yet. Start one above, or press play on any quest.", Modifier.padding(top = 8.dp), 14) }
-        items(timers, key = { it.id }) { t -> TimerCard(app, t, now, pickerFor == t.id, { pickerFor = if (pickerFor == t.id) null else t.id }) { pickerFor = null } }
     }
 }
 

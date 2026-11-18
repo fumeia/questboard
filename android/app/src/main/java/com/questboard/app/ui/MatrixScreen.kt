@@ -94,7 +94,7 @@ fun MatrixScreen(app: QuestboardApp, v: Int, now: Long) {
                             items(quests, key = { it.str("id") }) { q ->
                                 QuestRow(q, fmtSpent(s.questTimeMs(q, now)), s.isQuestRunning(q.str("id")),
                                     onOpen = { open = q.str("id") }, onCheck = { s.setDone(q.str("id"), !q.optBoolean("done")) },
-                                    onPlay = { s.toggleQuestTimer(q.str("id")) })
+                                    onPlay = { s.toggleQuestTimer(q.str("id")) }, compact = true)
                             }
                         }
                     }
@@ -193,7 +193,6 @@ fun QuestSheet(app: QuestboardApp, id: String, v: Int, now: Long, onClose: () ->
     val ctx = LocalContext.current
     var title by remember(id) { mutableStateOf(q.str("title")) }
     var notes by remember(id) { mutableStateOf(q.str("notes")) }
-    var confirmDelete by remember { mutableStateOf(false) }
     val saveText = {
         if (title.trim().isNotEmpty() && title != q.str("title")) s.updateQuest(id, mapOf("title" to title.trim()))
         if (notes != q.str("notes")) s.updateQuest(id, mapOf("notes" to notes))
@@ -210,7 +209,24 @@ fun QuestSheet(app: QuestboardApp, id: String, v: Int, now: Long, onClose: () ->
                 OutlinedTextField(title, { title = it }, singleLine = true, modifier = Modifier.weight(1f),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { saveText() }))
             }
+            // the things you came here to do, right under the title
+            if (!q.optBoolean("done")) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                val link = q.str("link")
+                if (isRpg(q)) {
+                    if (link.isNotEmpty()) Pill("Open Physics RPG", C.accent.copy(alpha = 0.55f)) { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link))) }
+                    Muted("Study time comes from the game, so there is no timer here (it would count twice).", size = 12)
+                } else {
+                    Pill("${app.settings.pomodoroMin}m focus", C.violet.copy(alpha = 0.45f)) { s.startPomodoro(id, app.settings.pomodoroMin) }
+                    val running = s.isQuestRunning(id)
+                    Pill(if (running) "Pause stopwatch" else "Stopwatch", if (running) C.green.copy(alpha = 0.4f) else C.card) { s.toggleQuestTimer(id) }
+                    if (link.isNotEmpty()) Pill(if (q.str("source") == "notion") "Open in Notion" else "Open link", C.card) {
+                        ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
+                    }
+                }
+            }
             OutlinedTextField(notes, { notes = it }, placeholder = { Text("Notes") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+            val reviews = rpgReviews(q)
+            if (reviews > 0) Chip("$reviews review${if (reviews == 1) "" else "s"} due in the game: do those first", C.orange)
             s.extProgress(q)?.let { p ->
                 Text(p.text, color = C.text, fontSize = 13.sp)
             }
@@ -219,23 +235,17 @@ fun QuestSheet(app: QuestboardApp, id: String, v: Int, now: Long, onClose: () ->
                 QbIcon("sparkle", C.gold, 14.dp); HSpace(4.dp); Muted("${questXp(q)} XP", size = 13)
                 HSpace(14.dp); QbIcon("stopwatch", C.muted, 14.dp); HSpace(4.dp)
                 Muted(fmtSpent(s.questTimeMs(q, now)).ifEmpty { "no time yet" }, size = 13)
-                Spacer(Modifier.weight(1f))
-                if (q.str("link").isNotEmpty()) Pill(when (q.str("source")) { "physics-rpg" -> "Open Physics RPG"; "notion" -> "Open in Notion"; else -> "Open link" }, C.card) {
-                    ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(q.str("link"))))
-                }
             }
             QuadrantChips(q.str("quadrant")) { s.updateQuest(id, mapOf("quadrant" to it)) }
             GoalChips(app, q)
             DueChips(q.optJSONObject("due")?.str("date")?.ifEmpty { null }) { d -> s.updateQuest(id, mapOf("due" to d?.let { jobj("date" to it) })) }
             ScheduleChips(app, q)
-            if (!q.optBoolean("done")) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                val running = s.isQuestRunning(id)
-                Pill(if (running) "Pause timer" else "Start stopwatch", if (running) C.green.copy(alpha = 0.4f) else C.card) { s.toggleQuestTimer(id) }
-                Pill("${app.settings.pomodoroMin}m focus", C.red.copy(alpha = 0.35f)) { s.startPomodoro(id, app.settings.pomodoroMin) }
-            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                if (confirmDelete) Pill("Really delete", C.red) { s.deleteQuest(id); onClose() }
-                else Pill("Delete", Color.Transparent, C.red) { confirmDelete = true }
+                // one tap; "Undo" shows for a few seconds (and Recently deleted keeps it 30 days)
+                Pill("Delete", Color.Transparent, C.red) {
+                    saveText(); s.deleteQuest(id); onClose()
+                    showUndo("Deleted “${q.str("title")}”") { s.restoreQuest(id) }
+                }
                 TextButton(onClick = { saveText(); onClose() }) { Text("Done") }
             }
             Spacer(Modifier.height(4.dp))
@@ -285,8 +295,8 @@ fun StepsEditor(app: QuestboardApp, q: org.json.JSONObject, now: Long) {
                 val meta = listOfNotNull(goal?.str("title"), spent.ifEmpty { null }).joinToString(" · ")
                 if (meta.isNotEmpty()) Muted(meta, size = 11)
             }
-            if (!done || running) IconBtn(if (running) "pause" else "target",
-                { s.toggleStepPomodoro(id, sid, app.settings.pomodoroMin) }, if (running) C.green else C.red, 16.dp)
+            if ((!done || running) && !isRpg(q)) IconBtn(if (running) "pause" else "target",
+                { s.toggleStepPomodoro(id, sid, app.settings.pomodoroMin) }, if (running) C.green else C.violet, 16.dp)
             Box {
                 IconBtn("star", { goalMenuFor = sid }, if (goal != null) C.gold else C.muted, 16.dp)
                 DropdownMenu(expanded = goalMenuFor == sid, onDismissRequest = { goalMenuFor = null }) {

@@ -131,6 +131,10 @@ Using it:
 - Reopening the popup within 2 minutes keeps the page you were on.
 - Physics RPG quests open the game instead of starting a timer (the game records the study time itself), and show
   how many reviews (respawns) are due.
+- **Level badge** (top left): click it for the Level page. Each level has a rank (Point particle → Free electron → …
+  → Black hole), the page shows where XP comes from, a **daily focus target** (default 3 h; timers and Physics RPG study
+  time count; +25 XP once a day) and **achievements** (worked out from what you already did, each pays XP once).
+  The header shows focus today against the target, e.g. "1h 34m / 3h". Same on the phone.
 - Habit strip above the matrix: one click = today's check-in. Full habit management in the **Habits** tab.
 - **Timers:** your timers first, then presets (one click starts); "+ Custom timer" opens the full form. Changing the
   minutes there is for that timer only; the default lengths are in Settings.

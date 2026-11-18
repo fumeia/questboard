@@ -43,6 +43,11 @@ class Settings(context: Context) {
     var pomodoroMin: Int get() = p.getInt("pomodoro", 25); set(v) = p.edit().putInt("pomodoro", v).apply()
     var breakMin: Int get() = p.getInt("break", 5); set(v) = p.edit().putInt("break", v).apply()
     var countdownMin: Int get() = p.getInt("countdown", 45); set(v) = p.edit().putInt("countdown", v).apply()
+    /** Daily focus target in minutes (0 = off); reaching it pays DAILY_XP once a day (Store.checkRewards). */
+    var dailyTargetMin: Int get() = p.getInt("dailyTarget", com.questboard.app.data.DEFAULT_DAILY_TARGET_MIN); set(v) = p.edit().putInt("dailyTarget", v.coerceIn(0, 720)).apply()
+    /** Achievements already announced on this phone, and the last level seen (for the level-up notification). */
+    var achSeen: String? get() = p.getString("achSeen", null); set(v) = p.edit().putString("achSeen", v).apply()
+    var lastLevel: Int get() = p.getInt("lastLevel", 0); set(v) = p.edit().putInt("lastLevel", v).apply()
     /** Start a break by itself when a Pomodoro ends (Timers page switch). */
     var autoBreak: Boolean get() = p.getBoolean("autoBreak", false); set(v) = p.edit().putBoolean("autoBreak", v).apply()
     /** Saved timers for one-tap start: JSON [{label, kind, min}] (kind pomodoro | break | custom | stopwatch). */

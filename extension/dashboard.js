@@ -10,8 +10,8 @@ import GLib from 'gi://GLib';
 import St from 'gi://St';
 
 import {CalendarView} from './calendarView.js';
-import {HabitStrip, HabitsPage, ProgressPage, ShopPage} from './pages.js';
-import {QUADRANTS, STEP_XP, dueInDays, groupBonus, levelInfo, parseDueDate, questXp} from './store.js';
+import {HabitStrip, HabitsPage, LevelPage, ProgressPage, ShopPage} from './pages.js';
+import {QUADRANTS, STEP_XP, dueInDays, groupBonus, levelInfo, parseDueDate, questXp, rankName} from './store.js';
 import {
     addDays, box, button, checkButton, clearChildren, dateKey, entry, flushEdits, fmtDate, fmtMinutes, fmtSpent, fmtTimer, gicon,
     icon, iconButton, iconLabel, iconTextButton, label, scroll, textButton,
@@ -97,6 +97,7 @@ export class Dashboard {
         this.habitsPage = new HabitsPage(this);
         this.shopPage = new ShopPage(this);
         this.progressPage = new ProgressPage(this);
+        this.levelPage = new LevelPage(this);
         this._pages = {
             matrix: this._buildMatrixPage(),
             habits: this.habitsPage.actor,
@@ -104,7 +105,8 @@ export class Dashboard {
             shop: this.shopPage.actor,
             progress: this.progressPage.actor,
             detail: this._buildDetailPage(),
-            trash: this._buildTrashPage(),  // no tab: opened from "Recently deleted" under the matrix (like the phone)
+            trash: this._buildTrashPage(),
+            level: this.levelPage.actor,    // no tab: the level badge opens it  // no tab: opened from "Recently deleted" under the matrix (like the phone)
         };
         for (const p of Object.values(this._pages))
             this._left.add_child(p);
@@ -199,7 +201,9 @@ export class Dashboard {
         this._xpLabel = label('', 'qb-xp-label');
         xpCol.add_child(this._xpLabel);
         lvl.add_child(xpCol);
-        h.add_child(lvl);
+        // the badge explains itself: a click opens the Level page (ranks, where XP comes from, achievements)
+        h.add_child(button({style_class: 'qb-stat-btn qb-level-btn', child: lvl, y_align: Clutter.ActorAlign.CENTER,
+            accessible_name: 'Level, ranks and achievements'}, () => this._setPage('level'), 'level'));
 
         this._coins = iconLabel('qb-coin', '', 'qb-stat qb-coins');
         this._streak = iconLabel('qb-flame', '', 'qb-stat qb-streak');
@@ -240,7 +244,7 @@ export class Dashboard {
         const info = levelInfo(this._store.xp);
         this._lvlLabel.text = `Lv ${info.level}`;
         this._xpFill.set_width(Math.max(2, Math.round(XP_BAR_W * info.frac)));
-        this._xpLabel.text = `${info.into} / ${info.span} XP`;
+        this._xpLabel.text = `${rankName(info.level)} · ${info.into}/${info.span}`;
         this._coins.labelActor.text = this._store.balance.toLocaleString();
         const streak = this._store.streak();
         this._streak.labelActor.text = `${streak}d`;
@@ -248,8 +252,17 @@ export class Dashboard {
         // words next to the numbers: a bare tick or stopwatch with a number did not say what it counts
         this._doneToday.labelActor.text = `${this._store.completedOn()} done`;
         const focus = fmtSpent(this._store.focusOn(undefined, now));
-        this._focus.labelActor.text = focus ? `${focus} focus` : '';
-        this._focus.visible = !!focus;
+        // focus today against the daily target ("1h 34m / 3h"); a tick once it is reached
+        const target = this._store.dailyTargetMin;
+        const hit = this._store.dailyHit();
+        this._focus.labelActor.text = target > 0
+            ? (hit ? `${focus || '0m'} ✓` : `${focus || '0m'} / ${fmtSpent(target * 60000)}`)
+            : (focus ? `${focus} focus` : '');
+        this._focus.visible = target > 0 || !!focus;
+        if (hit)
+            this._focus.add_style_class_name('qb-target-hit');
+        else
+            this._focus.remove_style_class_name('qb-target-hit');
 
         const running = this._store.runningTimers();
         this._tabs.timers.labelActor.text = running.length ? `Timers ${running.length}` : 'Timers';
@@ -1251,6 +1264,7 @@ export class Dashboard {
         case 'detail': this._renderDetail(now); break;
         case 'progress': this.progressPage.render(now); break;
         case 'trash': this._renderTrashPage(); break;
+        case 'level': this.levelPage.render(now); break;
         }
         this.calendar.render();
     }

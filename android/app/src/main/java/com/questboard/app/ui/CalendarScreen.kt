@@ -179,7 +179,7 @@ fun CalendarScreen(app: QuestboardApp, v: Int, permVersion: Int, now: Long = Sys
             for (f in app.store.focusBlocks(dateKey(day))) {
                 val s = ((maxOf(f.start, dayStart) - dayStart) / 60000).toInt()
                 val en = ((minOf(f.end, dayStart + 86_400_000) - dayStart) / 60000).toInt()
-                list += Block("f${f.id}", if (f.rpg) f.title else "Focus · ${f.title}", s, maxOf(s + 10, en), if (f.rpg) RPG_COLOR else C.red,
+                list += Block("f${f.id}", if (f.rpg) f.title else "Focus · ${f.title}", s, maxOf(s + 10, en), if (f.rpg) RPG_COLOR else C.violet,
                     questId = f.questId, focus = true, live = f.live)
             }
             layout(list)

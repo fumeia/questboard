@@ -257,6 +257,36 @@ check(dash._undoBar.visible, 'reward delete shows Undo');
 G.runTimers(6000);
 check(!dash._undoBar.visible && !store.rewards().some(r => r.title === 'Kino'), 'the Undo bar goes away by itself; the delete stays');
 
+// ---- game layer: level page, daily target, achievements
+const r1 = store.checkRewards();
+check(r1.first && r1.unlocked.some(a => a.id === 'first-quest') === false, 'first check: nothing reported that was not earned (no quest done yet)');
+const xp0 = store.xp;
+store.setDailyTarget(1);
+store._put('sessions', {id: 'test.s1', questId: q2.id, kind: 'pomodoro', date: util.dateKey(), start: Date.now() - 30 * 60000, end: Date.now(), durationMs: 30 * 60000});
+store._put('ledger', {id: 'pomodoro.test', at: Date.now(), amount: 10, kind: 'pomodoro', ref: q2.id});
+store._changed();
+const r2 = store.checkRewards();
+check(r2.daily && store.dailyHit() && r2.unlocked.some(a => a.id === 'pomo-1') && r2.unlocked.some(a => a.id === 'daily-1'),
+    `daily target and achievements pay out (${r2.unlocked.map(a => a.id).join(', ')})`);
+check(store.xp === xp0 + 10 + 25 + r2.unlocked.reduce((a, x) => a + x.xp, 0), 'XP adds up: Pomodoro + daily + achievements');
+const r3 = store.checkRewards();
+check(!r3.daily && !r3.unlocked.length, 'nothing pays twice');
+store._put('ledger', {id: 'rpg.qm.2026-11-17', at: Date.now(), amount: 300, kind: 'rpg'});
+store._changed();
+const r4 = store.checkRewards();
+check(r4.levelUp && r4.levelUp.to >= 3, `a level-up is reported (${JSON.stringify(r4.levelUp)})`);
+dash.showPage('matrix');
+check(/✓$/.test(dash._focus.labelActor.text), `header focus shows the target reached (${dash._focus.labelActor.text})`);
+check(/^Harmonic oscillator|^Free electron|^Hydrogen atom/.test(dash._xpLabel.text), `rank under the XP bar (${dash._xpLabel.text})`);
+click(btn('Level, ranks and achievements'));
+const lp = dash._pages.level;
+check(dash._page === 'level' && text(lp).includes('How you earn XP') && text(lp).includes('Achievements ·') && text(lp).includes('Black hole'),
+    'the level badge opens the Level page: XP sources, achievements, ranks');
+store.setDailyTarget(store.dailyTargetMin + 30);
+check(store.dailyTargetMin === 31, 'daily target can be changed');
+shot('9-level');
+click(btn('Back', lp));
+
 // ---- typed dates (store.parseDueDate, shared with the phone's rules)
 const ref = new Date(2026, 10, 18);
 const pd = t => parseDueDate(t, ref);

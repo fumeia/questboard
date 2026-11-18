@@ -12,7 +12,7 @@ tombstone (`deletedAt` added), so "Recently deleted" can restore it for 30 days 
 | `habits` | title, icon, xp, target (1–7 per week), archived, createdAt | |
 | `checkins` | habitId, date | id = `<habitId>.<YYYY-MM-DD>` (deterministic → no duplicates) |
 | `rewards` | title, cost, icon, repeatable, redeemedAt? | defaults: ids `reward.*`, `updatedAt: 1` |
-| `ledger` | at, amount (±), kind `quest/step/habit/pomodoro/goal/purchase/bonus/rpg`, ref, note | ids: `quest.<questId>`, `step.<questId>.<stepId>`, `habit.<checkinId>`, `pomo.<timerId>.<ms>`, `goal.<goalId>`, `buy.<uid>`, `rpg.<course>.<YYYY-MM-DD>` / `rpg.<course>.earlier` (game XP per course and day, amount updated in place) |
+| `ledger` | at, amount (±), kind `quest/step/habit/pomodoro/goal/purchase/bonus/rpg/daily/achievement`, ref, note | ids: `quest.<questId>`, `step.<questId>.<stepId>`, `habit.<checkinId>`, `pomo.<timerId>.<ms>`, `goal.<goalId>`, `buy.<uid>`, `rpg.<course>.<YYYY-MM-DD>` / `rpg.<course>.earlier` (game XP per course and day, amount updated in place), `daily.<YYYY-MM-DD>` (daily focus target reached, 25), `ach.<achievementId>` (achievement, once; the table is in store.js / Store.kt). Fixed ids, so two devices paying the same reward write the same record |
 | `sessions` | questId, stepId?, kind, start, end, durationMs, date, topic? | one per timer run segment; `stepId` = a step's own timer. `slot.<questId>` (kind `slot`): ticking a quest off credits the passed part of its time slot / linked event not already covered by timer sessions |
 
 Derived, never stored: **XP** = sum of positive ledger amounts (→ level: XP to reach level L = 50·L·(L−1));
