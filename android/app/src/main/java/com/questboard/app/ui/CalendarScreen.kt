@@ -3,6 +3,8 @@
 package com.questboard.app.ui
 
 import android.content.Intent
+import android.widget.Toast
+import android.content.Context
 import android.net.Uri
 import android.provider.Settings as AndroidSettings
 import androidx.compose.foundation.background
@@ -61,6 +63,7 @@ import java.time.format.TextStyle
 import java.util.Locale
 
 private const val HOUR_DP = 56
+private val RPG_COLOR = Color(0xFF33C7DE)  // Physics RPG study stretches
 private const val GUTTER_DP = 46
 
 private data class Block(val key: String, val title: String, val start: Int, val end: Int, val color: Color,
@@ -176,7 +179,8 @@ fun CalendarScreen(app: QuestboardApp, v: Int, permVersion: Int, now: Long = Sys
             for (f in app.store.focusBlocks(dateKey(day))) {
                 val s = ((maxOf(f.start, dayStart) - dayStart) / 60000).toInt()
                 val en = ((minOf(f.end, dayStart + 86_400_000) - dayStart) / 60000).toInt()
-                list += Block("f${f.id}", "Focus · ${f.title}", s, maxOf(s + 10, en), C.red, questId = f.questId, focus = true, live = f.live)
+                list += Block("f${f.id}", if (f.rpg) f.title else "Focus · ${f.title}", s, maxOf(s + 10, en), if (f.rpg) RPG_COLOR else C.red,
+                    questId = f.questId, focus = true, live = f.live)
             }
             layout(list)
         }
@@ -221,7 +225,7 @@ fun CalendarScreen(app: QuestboardApp, v: Int, permVersion: Int, now: Long = Sys
                         .let { if (b.focus) it.border(1.dp, b.color.copy(alpha = if (b.live) 0.9f else 0.5f), RoundedCornerShape(6.dp)) else it }
                         .pointerInput(b.key, b.questId) {
                             detectTapGestures(
-                                onLongPress = { if (b.event != null) editEvent = b.event },  // a converted event: hold to edit the event itself
+                                onLongPress = { reschedule(ctx, app, b, day) { reload++ } },  // hold: move it to another date and time
                                 onTap = {
                                     when {
                                         b.focus -> b.questId?.takeIf { app.store.getQuest(it) != null }?.let { openQuest = it }
@@ -406,4 +410,36 @@ private fun EventDialog(app: QuestboardApp, cals: List<CalInfo>, e: CalEvent?, d
         },
         dismissButton = { TextButton(onClick = onDone) { Text("Cancel") } },
     )
+}
+
+/**
+ * Hold a block in the calendar: pick a new date, then a new start time (the phone's own pickers). It keeps its length.
+ * A scheduled quest moves its time slot; a calendar event (also one that is a quest) moves in the calendar, and its quest follows.
+ * Timer and Physics RPG blocks are what happened, so they don't move; a repeating event is moved in the calendar app.
+ */
+private fun reschedule(ctx: Context, app: QuestboardApp, b: Block, day: LocalDate, onDone: () -> Unit) {
+    if (b.focus) { Toast.makeText(ctx, "Timer and study blocks show when it happened; they can't be moved.", Toast.LENGTH_SHORT).show(); return }
+    val ev = b.event
+    val q = b.questId?.let { app.store.getQuest(it) }
+    if (ev == null && q == null) return
+    if (ev != null && ev.recurring) { Toast.makeText(ctx, "A repeating event: move this one in your calendar app.", Toast.LENGTH_LONG).show(); return }
+    android.app.DatePickerDialog(ctx, { _, y, m, d ->
+        val date = LocalDate.of(y, m + 1, d)
+        android.app.TimePickerDialog(ctx, { _, h, min ->
+            val startMin = h * 60 + min
+            if (ev != null) {
+                val len = ev.end - ev.begin
+                val begin = date.atStartOfDay(ZoneId.systemDefault()).plusMinutes(startMin.toLong()).toInstant().toEpochMilli()
+                val ok = runCatching { app.calendar.update(ev.id, ev.title, begin, begin + len, false, ev.location, ev.description, false) }
+                    .onFailure { app.log.exception("calendar", it) }.getOrDefault(false)
+                if (!ok) Toast.makeText(ctx, "The calendar did not accept the change.", Toast.LENGTH_SHORT).show()
+                else q?.let { app.store.updateQuest(it.str("id"), mapOf("due" to jobj("date" to dateKey(date)),
+                    "eventTime" to jobj("start" to startMin, "end" to startMin + (len / 60_000).toInt()))) }
+            } else if (q != null) {
+                val dur = q.optJSONObject("scheduled")?.optInt("duration", b.end - b.start) ?: (b.end - b.start)
+                app.store.updateQuest(q.str("id"), mapOf("scheduled" to jobj("date" to dateKey(date), "start" to startMin, "duration" to dur)))
+            }
+            onDone()
+        }, b.start / 60, b.start % 60, android.text.format.DateFormat.is24HourFormat(ctx)).show()
+    }, day.year, day.monthValue - 1, day.dayOfMonth).show()
 }

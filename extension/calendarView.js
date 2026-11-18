@@ -978,7 +978,7 @@ export class CalendarView {
         for (const f of this._store.focusBlocks(key)) {
             const start = Math.max(0, (f.start - begin.getTime()) / 60000);
             const stop = Math.min(24 * 60, (f.end - begin.getTime()) / 60000);
-            timed.push({kind: 'focus', id: f.id, title: `Focus · ${f.title}`, questId: f.questId, live: f.live,
+            timed.push({kind: 'focus', id: f.id, title: f.rpg ? f.title : `Focus · ${f.title}`, questId: f.questId, live: f.live, rpg: f.rpg,
                 start, end: Math.max(start + 10, stop), label: `${fmtMinutes(start)} – ${fmtMinutes(stop)}${f.live ? ' · running' : ''}`});
         }
         return {allDay, timed};
@@ -1084,7 +1084,7 @@ export class CalendarView {
             if (h >= 34)
                 content.add_child(label(it.label, 'qb-block-time', {ellipsize: true}));
             let cls = it.kind === 'event' ? (it.quest ? `qb-block qb-qblock qb-${it.quest.quadrant}` : 'qb-block qb-event')  // a linked event looks like a quest
-                : it.kind === 'focus' ? `qb-block qb-focus${it.live ? ' live' : ''}` : `qb-block qb-qblock qb-${it.quadrant}`;
+                : it.kind === 'focus' ? `qb-block qb-focus${it.rpg ? ' rpg' : ''}${it.live ? ' live' : ''}` : `qb-block qb-qblock qb-${it.quadrant}`;
             if (it.done || it.quest?.done)
                 cls += ' done';
             if (it.quest)

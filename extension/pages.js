@@ -387,6 +387,10 @@ export class ShopPage {
 
 // ------------------------------------------------------------------ progress (goals + stats)
 
+/** Goal colours (same order as Store.kt): a goal keeps its colour; time without a goal is grey. */
+const GOAL_COLORS = ['#3584e4', '#ffa348', '#2ec27e', '#c061cb', '#f8e45c', '#33c7de', '#e5534b', '#dc8add', '#8ff0a4', '#cdab8f'];
+const goalColor = (order, id) => (id ? GOAL_COLORS[Math.max(0, order.indexOf(id)) % GOAL_COLORS.length] : 'rgba(255,255,255,0.4)');
+
 const fmtDur = ms => {
     const m = Math.round(ms / 60000);
     const h = Math.floor(m / 60);
@@ -402,6 +406,167 @@ export class ProgressPage {
         this.actor = box({vertical: true, style_class: 'qb-page', x_expand: true, y_expand: true});
         this._body = box({vertical: true, style_class: 'qb-stats-body'});
         this.actor.add_child(scroll(this._body, {y_expand: true}));
+    }
+
+    /** Open a goal's card (the deadline chips under the header land here). */
+    expandGoal(id) {
+        this._goals.expand(id);
+    }
+
+    /** Stats: range (week / 30 days / all time), totals, a chart (bars by goal per day, or the heatmap for all time), time per goal. */
+    _renderStats(b) {
+        const st = this._store.stats(this._range);
+        const order = this._store.goalOrder();
+        const title = id => (id ? this._store.getGoal(id)?.title ?? '(deleted goal)' : 'No goal');
+        const head = box({style_class: 'qb-actions-row'});
+        head.add_child(label('Stats', 'qb-section-title', {x_expand: true}));
+        for (const [v, t] of [[7, 'Week'], [30, '30 days'], [0, 'All time']]) {
+            const btn = textButton(t, 'qb-small qb-seg', () => {
+                this._range = v;
+                this._picked = null;
+                this._dash.render(true);
+            });
+            if (v === this._range)
+                btn.add_style_pseudo_class('checked');
+            head.add_child(btn);
+        }
+        b.add_child(head);
+
+        const perDay = this._store.focusPerDay();
+        const firstDay = Object.keys(perDay).filter(k => perDay[k] > 0).sort()[0];
+        const days = this._range || (firstDay ? Math.round((startOfDay(new Date()) - new Date(`${firstDay}T00:00`)) / 86400000) + 1 : 1);
+        const tiles = box({style_class: 'qb-tiles'});
+        for (const [ic, value, caption] of [['qb-stopwatch', fmtDur(st.focusMs), 'focus'], ['qb-sun', fmtDur(st.focusMs / Math.max(1, days)), 'avg per day'],
+            ['qb-sparkle', String(st.xp), 'XP'], ['qb-check', String(st.questsDone), 'quests done']]) {
+            const t = box({vertical: true, style_class: 'qb-tile', x_expand: true});
+            t.add_child(iconLabel(ic, value, 'qb-tile-value'));
+            t.add_child(label(caption, 'qb-muted'));
+            tiles.add_child(t);
+        }
+        b.add_child(tiles);
+        b.add_child(iconLabel('qb-flame', `${st.streak}-day streak · best ${st.bestStreak} days · ${st.pomodoros} Pomodoros`, 'qb-muted'));
+
+        if (this._range) {
+            const bars = this._store.dailyByGoal(this._range);
+            b.add_child(label(this._range === 7 ? 'Focus per day, by goal' : 'Focus per day, last 30 days, by goal', 'qb-section-title'));
+            b.add_child(this._goalBars(bars, order, this._range === 7));
+            const d = this._picked && bars.find(x => x.date === this._picked);
+            b.add_child(label(d ? `${fmtDate(new Date(`${d.date}T12:00`), '%a %e %b')}: ${fmtDur(d.total)}${d.parts.length ? ' — ' +
+                d.parts.map(p => `${title(p.id)} ${fmtDur(p.ms)}`).join(', ') : ''}` : 'Click a day for its details.', 'qb-muted', {wrap: true}));
+        } else {
+            b.add_child(label('Every day you studied', 'qb-section-title'));
+            b.add_child(this._heatmap(perDay));
+            const studied = Object.keys(perDay).filter(k => perDay[k] > 0).sort();
+            let best = 0, run = 0, prev = null;
+            for (const k of studied) {
+                const c = new Date(`${k}T12:00`);
+                run = prev && Math.round((c - prev) / 86400000) === 1 ? run + 1 : 1;
+                best = Math.max(best, run);
+                prev = c;
+            }
+            const total = Object.values(perDay).reduce((a, v) => a + v, 0);
+            b.add_child(label(`${studied.length} days with focus time · longest run ${best} days · ${fmtDur(total)} in total`, 'qb-muted', {wrap: true}));
+        }
+
+        // time per goal, in the colours of the bars
+        b.add_child(label('Time per goal', 'qb-section-title'));
+        const gt = st.byGoal;
+        if (!gt.length)
+            b.add_child(label('No focus time yet. Link quests to goals and start a timer.', 'qb-empty', {wrap: true}));
+        const gTotal = Math.max(1, gt.reduce((a, g) => a + g.ms, 0));
+        for (const g of gt) {
+            const color = goalColor(order, g.id);
+            const row = box({vertical: true, style_class: 'qb-topic-row'});
+            const top = box({});
+            top.add_child(new St.Widget({style_class: 'qb-goal-swatch', style: `background-color: ${color};`, y_align: Clutter.ActorAlign.CENTER}));
+            top.add_child(label(g.title, g.id ? 'qb-topic-name' : 'qb-muted', {ellipsize: true, x_expand: true}));
+            top.add_child(label(`${fmtDur(g.ms)} · ${Math.round(100 * g.ms / gTotal)} %`, 'qb-muted'));
+            row.add_child(top);
+            const track = new St.Widget({style_class: 'qb-progress-track', x_expand: true});
+            const fill = new St.Widget({style_class: 'qb-goal-fill', style: `background-color: ${color};`});
+            track.add_child(fill);
+            track.connect('notify::width', () => fill.set_width(Math.round(track.width * g.ms / gTotal)));
+            row.add_child(track);
+            b.add_child(row);
+        }
+    }
+
+    /** One bar per day, stacked by goal (first goal at the bottom); click a bar for the day's breakdown. */
+    _goalBars(bars, order, week) {
+        const H = 90;
+        const chart = box({style_class: week ? 'qb-chart' : 'qb-chart qb-chart-month'});
+        const max = Math.max(1, ...bars.map(d => d.total));
+        bars.forEach((d, i) => {
+            const col = box({vertical: true, style_class: 'qb-chart-col', x_expand: true});
+            if (week)
+                col.add_child(label(d.total ? fmtDur(d.total) : '', 'qb-chart-value', {x_align: Clutter.ActorAlign.CENTER}));
+            const area = new St.Widget({style_class: 'qb-chart-area', y_expand: true, x_expand: true, layout_manager: new Clutter.BinLayout()});
+            const h = d.total ? Math.max(3, Math.round(H * d.total / max)) : 1;
+            const stack = box({vertical: true, style_class: this._picked === d.date ? 'qb-stack picked' : 'qb-stack',
+                x_align: Clutter.ActorAlign.FILL, y_align: Clutter.ActorAlign.END, height: h});
+            if (!d.total)
+                stack.set_style('background-color: rgba(255,255,255,0.08);');
+            let used = 0;
+            const parts = [...d.parts].reverse();  // drawn top to bottom: the first goal ends up at the bottom
+            parts.forEach((p, j) => {
+                const ph = j === parts.length - 1 ? h - used : Math.max(1, Math.round(h * p.ms / d.total));
+                used += ph;
+                stack.add_child(new St.Widget({height: Math.max(0, ph), x_expand: true, style: `background-color: ${goalColor(order, p.id)};`}));
+            });
+            area.add_child(stack);
+            col.add_child(area);
+            const day = new Date(`${d.date}T12:00`);
+            col.add_child(label(week ? fmtDate(day, '%a').slice(0, 2) : (i % 5 === 4 || i === bars.length - 1 ? String(day.getDate()) : ''),
+                'qb-chart-day', {x_align: Clutter.ActorAlign.CENTER}));
+            chart.add_child(button({style_class: 'qb-chart-btn', child: col, x_expand: true}, () => {
+                this._picked = this._picked === d.date ? null : d.date;
+                this._dash.render(true);
+            }, 'chart-day'));
+        });
+        return chart;
+    }
+
+    /** Anki-style calendar: one column per week, one square per day, darker green = more focus. The last 26 weeks fit the popup. */
+    _heatmap(perDay) {
+        const today = startOfDay(new Date());
+        const WEEKS = 26;
+        const start = addDays(startOfWeek(today), -7 * (WEEKS - 1));  // a Monday
+        const level = ms => {
+            const m = ms / 60000;
+            return m <= 0 ? 0 : m < 30 ? 0.25 : m < 60 ? 0.45 : m < 120 ? 0.65 : m < 180 ? 0.85 : 1;
+        };
+        const cellStyle = l => (l ? `background-color: rgba(46,194,126,${l});` : 'background-color: rgba(255,255,255,0.07);');
+        const wrap = box({vertical: true, style_class: 'qb-heatmap'});
+        const months = box({style_class: 'qb-heat-row'});
+        const grid = box({style_class: 'qb-heat-row'});
+        const names = box({vertical: true, style_class: 'qb-heat-col'});
+        months.add_child(new St.Widget({style_class: 'qb-heat-name'}));
+        for (let i = 0; i < 7; i++)
+            names.add_child(label(i % 2 === 0 ? fmtDate(addDays(start, i), '%a').slice(0, 2) : '', 'qb-heat-name'));
+        grid.add_child(names);
+        for (let w = 0; w < WEEKS; w++) {
+            const monday = addDays(start, 7 * w);
+            const newMonth = w === 0 || monday.getMonth() !== addDays(monday, -7).getMonth();
+            months.add_child(label(newMonth ? fmtDate(monday, '%b') : '', 'qb-heat-month'));
+            const col = box({vertical: true, style_class: 'qb-heat-col'});
+            for (let i = 0; i < 7; i++) {
+                const day = addDays(monday, i);
+                const cell = new St.Widget({style_class: 'qb-heat-cell'});
+                if (day <= today)
+                    cell.set_style(cellStyle(level(perDay[dateKey(day)] ?? 0)));
+                col.add_child(cell);
+            }
+            grid.add_child(col);
+        }
+        wrap.add_child(months);
+        wrap.add_child(grid);
+        const legend = box({style_class: 'qb-heat-row'});
+        legend.add_child(label('less ', 'qb-muted'));
+        for (const l of [0, 0.25, 0.45, 0.65, 0.85, 1])
+            legend.add_child(new St.Widget({style_class: 'qb-heat-cell', style: cellStyle(l), y_align: Clutter.ActorAlign.CENTER}));
+        legend.add_child(label(' more  (under 30 min · 1 h · 2 h · 3 h · more)', 'qb-muted'));
+        wrap.add_child(legend);
+        return wrap;
     }
 
     /** Last 7 days against the 7 before. */
@@ -421,110 +586,15 @@ export class ProgressPage {
         b.add_child(tiles);
     }
 
-    /** Open a goal's card (deadline chips in the header land here). */
-    expandGoal(id) {
-        this._goals.expand(id);
-    }
-
-    /** Focus per day over the last 7 days (always 7, whatever range the totals below show). */
-    _renderChart(b, st) {
-        const chart = box({style_class: 'qb-chart'});
-        const max = Math.max(1, ...st.daily.map(d => d.focusMs));
-        for (const d of st.daily) {
-            const col = box({vertical: true, style_class: 'qb-chart-col', x_expand: true});
-            col.add_child(label(d.focusMs ? fmtDur(d.focusMs) : '', 'qb-chart-value', {x_align: Clutter.ActorAlign.CENTER}));
-            const area = new St.Widget({style_class: 'qb-chart-area', y_expand: true, x_expand: true,
-                layout_manager: new Clutter.BinLayout()});
-            const bar = new St.Widget({style_class: 'qb-chart-bar', x_align: Clutter.ActorAlign.CENTER, y_align: Clutter.ActorAlign.END,
-                height: Math.max(2, Math.round(80 * d.focusMs / max))});
-            area.add_child(bar);
-            col.add_child(area);
-            const day = new Date(`${d.date}T12:00`);
-            col.add_child(label(fmtDate(day, '%a').slice(0, 2), 'qb-chart-day', {x_align: Clutter.ActorAlign.CENTER}));
-            chart.add_child(col);
-        }
-        b.add_child(chart);
-    }
-
-    /**
-     * This week (tiles + the 7-day chart: both always the last 7 days), then goals, then totals for a range you pick.
-     * The range buttons sit directly above everything they change.
-     */
     render(now = Date.now()) {
         const b = this._body;
         clearChildren(b);
         b.add_child(label('This week', 'qb-section-title'));
         this._renderReview(b, now);
-        const st = this._store.stats(this._range);
-        this._renderChart(b, st);
-
         b.add_child(label('Goals', 'qb-section-title'));
         this._goals.render(b, now);
-
-        const seg = box({style_class: 'qb-actions-row'});
-        seg.add_child(label('Totals', 'qb-section-title', {x_expand: true}));
-        for (const [v, t] of [[7, '7 days'], [30, '30 days'], [0, 'All time']]) {
-            const btn = textButton(t, 'qb-small qb-seg', () => {
-                this._range = v;
-                this._dash.render(true);
-            });
-            if (v === this._range)
-                btn.add_style_pseudo_class('checked');
-            seg.add_child(btn);
-        }
-        b.add_child(seg);
-
-        const tiles = box({style_class: 'qb-tiles'});
-        const tile = (ic, value, caption) => {
-            const t = box({vertical: true, style_class: 'qb-tile', x_expand: true});
-            t.add_child(iconLabel(ic, value, 'qb-tile-value'));
-            t.add_child(label(caption, 'qb-muted'));
-            tiles.add_child(t);
-        };
-        tile('qb-stopwatch', fmtDur(st.focusMs), 'focus');
-        tile('qb-sparkle', String(st.xp), 'XP earned');
-        tile('qb-check', String(st.questsDone), 'quests done');
-        tile('qb-target', String(st.pomodoros), 'pomodoros');
-        tile('qb-flame', `${st.streak}d`, `streak · best ${st.bestStreak}d`);
-        b.add_child(tiles);
-
-        if (st.byGoal.length) {
-            b.add_child(label('Time per goal', 'qb-section-title'));
-            const gTotal = Math.max(1, st.byGoal.reduce((a, g) => a + g.ms, 0));
-            for (const g of st.byGoal) {
-                const row = box({vertical: true, style_class: 'qb-topic-row'});
-                const top = box({});
-                top.add_child(label(g.title, 'qb-topic-name', {ellipsize: true, x_expand: true}));
-                top.add_child(label(`${fmtDur(g.ms)} · ${Math.round(100 * g.ms / gTotal)} %`, 'qb-muted'));
-                row.add_child(top);
-                const track = new St.Widget({style_class: 'qb-progress-track', x_expand: true});
-                const fill = new St.Widget({style_class: 'qb-goal-fill'});
-                track.add_child(fill);
-                track.connect('notify::width', () => fill.set_width(Math.round(track.width * g.ms / gTotal)));
-                row.add_child(track);
-                b.add_child(row);
-            }
-        }
-
-        // per topic
-        b.add_child(label('Time per topic', 'qb-section-title'));
-        if (!st.byTopic.length)
-            b.add_child(label('No focus time yet. Give quests a topic (quest details) and start a timer.', 'qb-empty', {wrap: true}));
-        const total = Math.max(1, st.byTopic.reduce((a, t) => a + t.ms, 0));
-        for (const t of st.byTopic) {
-            const row = box({vertical: true, style_class: 'qb-topic-row'});
-            const top = box({});
-            top.add_child(label(t.topic, t.topic === 'No topic' ? 'qb-muted' : 'qb-topic-name', {ellipsize: true, x_expand: true}));
-            top.add_child(label(`${fmtDur(t.ms)} · ${Math.round(100 * t.ms / total)} %`, 'qb-muted'));
-            row.add_child(top);
-            const track = new St.Widget({style_class: 'qb-progress-track', x_expand: true});
-            const fill = new St.Widget({style_class: 'qb-topic-fill'});
-            track.add_child(fill);
-            track.connect('notify::width', () => fill.set_width(Math.round(track.width * t.ms / total)));
-            row.add_child(track);
-            b.add_child(row);
-        }
-
+        this._renderStats(b);
+        const st = this._store.stats(this._range);
         if (st.topQuests.length) {
             b.add_child(label('Most time spent on', 'qb-section-title'));
             for (const q of st.topQuests) {

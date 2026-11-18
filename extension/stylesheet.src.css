@@ -1,6 +1,7 @@
 /* Questboard — written for the dark popup; tools/gen_css.py makes the .qb-dark and .qb-light variants.
  *
  * Type scale (only these four):  caption 0.75em · small 0.88em · body 1em · display 1.6em
+ *   (one exception: 0.6em labels in the stats heatmap, whose cells are 10 px)
  * Colour meanings (one job each):
  *   quadrants  q1 #e5534b red · q2 #3584e4 blue · q3 #e5a50a amber · q4 #9a9996 grey
  *   done       #2ec27e green          running/live  #57e389 light green
@@ -303,6 +304,23 @@
 .qb-goal-fill.done { background-color: #f8e45c; }
 .qb-goal-items { padding: 2px 0; }
 
+/* stats: bars stacked by goal, heatmap (its 10 px cells need the one smaller label size), goal swatches */
+.qb-chart-month { spacing: 2px; }
+.qb-chart-btn { padding: 0; border-radius: 4px; }
+.qb-chart-btn:hover { background-color: rgba(255,255,255,0.06); }
+.qb-stack { border-radius: 3px 3px 0 0; }
+.qb-stack.picked { border: 1px solid rgba(255,255,255,0.85); }
+.qb-goal-swatch { width: 10px; height: 10px; border-radius: 5px; margin-right: 6px; }
+.qb-heatmap { spacing: 2px; padding: 8px; border-radius: 10px; background-color: rgba(255,255,255,0.04); }
+.qb-heat-row { spacing: 2px; }
+.qb-heat-col { spacing: 2px; }
+.qb-heat-cell { width: 10px; height: 10px; border-radius: 2px; }
+.qb-heat-name { width: 18px; height: 10px; font-size: 0.6em; color: rgba(255,255,255,0.55); }
+.qb-heat-month { width: 10px; font-size: 0.6em; color: rgba(255,255,255,0.55); }
+
+/* "Recently deleted" under the matrix */
+.qb-trash-link { padding: 2px 6px; margin-top: 2px; font-size: 0.88em; }
+
 /* ---------- calendar ---------- */
 .qb-cal {
   spacing: 6px; padding: 8px; border-radius: 12px;
@@ -358,6 +376,9 @@
 .qb-focus { background-color: rgba(145,65,172,0.3); border-left: 3px solid rgba(192,97,203,0.7); }
 .qb-focus.live { background-color: rgba(145,65,172,0.5); border-left: 3px solid #c061cb; }
 .qb-focus:hover { background-color: rgba(145,65,172,0.6); }
+/* Physics RPG study stretches: cyan, apart from focus (violet) and the quadrants */
+.qb-focus.rpg { background-color: rgba(51,199,222,0.22); border-left: 3px solid rgba(51,199,222,0.7); }
+.qb-focus.rpg:hover { background-color: rgba(51,199,222,0.45); }
 .qb-cal-foot { spacing: 6px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.08); }
 .qb-editor { spacing: 5px; padding: 8px; border-radius: 10px; background-color: rgba(53,132,228,0.16); border: 1px solid rgba(53,132,228,0.35); }
 .qb-editor-title { font-weight: bold; font-size: 0.88em; }

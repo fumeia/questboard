@@ -212,33 +212,6 @@ export function checkButton(checked, onClick, {small = false, accessible_name = 
         y_align: Clutter.ActorAlign.CENTER, accessible_name}, onClick, where);
 }
 
-/**
- * "2027-01-15", "15.1.2027", "15.1.27", "15.1." / "15.1" (next such day), "+10" (in 10 days) → "YYYY-MM-DD", or null.
- */
-export function parseDate(text, today = new Date()) {
-    const t = String(text ?? '').trim();
-    const t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const ok = (y, m, d) => {
-        const dt = new Date(y, m - 1, d);
-        return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d ? dateKey(dt) : null;
-    };
-    let m = t.match(/^\+(\d{1,4})$/);
-    if (m)
-        return dateKey(addDays(t0, parseInt(m[1], 10)));
-    m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-    if (m)
-        return ok(+m[1], +m[2], +m[3]);
-    m = t.match(/^(\d{1,2})\.(\d{1,2})\.?(\d{2}|\d{4})?$/);
-    if (!m)
-        return null;
-    const d = +m[1], mo = +m[2];
-    if (m[3])
-        return ok(m[3].length === 2 ? 2000 + +m[3] : +m[3], mo, d);
-    const thisYear = ok(t0.getFullYear(), mo, d);
-    if (thisYear && thisYear >= dateKey(t0))
-        return thisYear;
-    return ok(t0.getFullYear() + 1, mo, d);
-}
 
 /** Parse "14:30", "1430", "9", "2:30pm", "9 am" → minutes since midnight, or null. */
 export function parseTime(text) {

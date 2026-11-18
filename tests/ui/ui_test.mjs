@@ -11,7 +11,7 @@ const EXT = path.join(HERE, '..', '..', 'extension');
 process.env.QB_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'qb-ui-'));
 
 const G = globalThis.__qbMock ??= {timers: new Map(), nextId: 1, focus: null, opened: []};
-const {Store} = await import(path.join(EXT, 'store.js'));
+const {Store, parseDueDate} = await import(path.join(EXT, 'store.js'));
 const {Dashboard} = await import(path.join(EXT, 'dashboard.js'));
 const util = await import(path.join(EXT, 'util.js'));
 const {writeHtml} = await import(path.join(HERE, 'render.mjs'));
@@ -142,9 +142,8 @@ const order = body.children.map(c => text(c));
 const focusIdx = order.findIndex(t => t.includes('25m focus'));
 const notesIdx = body.children.findIndex(c => c.kind === 'Entry' && c.hint_text === 'Notes');
 check(focusIdx > 0 && focusIdx < notesIdx, 'focus / stopwatch sit right under the title, above the notes');
-const topicsShown = buttons(body).filter(b => b.style_class.includes('qb-seg') && ['Topic A', 'Topic B', 'Topic C', 'Topic D', 'Analysis II', 'Astrophysik', 'Festkörperphysik', 'Quantenmechanik'].includes(b.label));
-check(topicsShown.length === 8, `all ${topicsShown.length} topics can be picked (was 6 at most)`);
-check(byClass('qb-actions-row', body).every(r => r.children.filter(c => c.style_class?.includes('qb-seg')).length <= 3), 'topic buttons come in rows of three');
+check(!text(body).includes('Topic / course'), 'no topic picker: goals replace topics on screen');
+check(buttons(body).some(b => b.label === '+1 day') && entries(body).some(e => e.style_class.includes('qb-date')), 'due date: ±1 day and a typed date');
 shot('3-detail');
 // type notes, no Enter, go back
 const notes = entries(body).find(e => e.hint_text === 'Notes');
@@ -180,6 +179,11 @@ check(!store.getQuest(q2.id) && dash._undoBar.visible && text(dash._undoBar).inc
 shot('4-undo');
 click(btn('Undo', dash._undoBar));
 check(!!store.getQuest(q2.id) && !dash._undoBar.visible, 'Undo brings the quest back');
+store.deleteQuest(store.visibleQuests('q4')[0].id);
+dash.showPage('matrix');
+check(dash._trashLink.visible && text(dash._trashLink).includes('Recently deleted · 1'), 'a deleted quest shows "Recently deleted" under the matrix');
+click(dash._trashLink);
+check(dash._page === 'trash' && btn('Restore', dash._pages.trash), 'it opens the Recently deleted page with Restore');
 
 // ---- remember the page on a quick reopen
 dash.openQuest(q1.id);
@@ -213,7 +217,7 @@ check(dash._page === 'progress' && dash.progressPage._goals._open.has(gFKP.id), 
 const pg = dash._pages.progress;
 const pText = text(pg);
 check(pText.indexOf('Focus, last 7 days') === -1 || pText.indexOf('This week') < pText.indexOf('Goals'), 'Progress: this week first, then goals');
-check(pText.indexOf('Totals') > pText.indexOf('Goals') && pText.indexOf('Totals 7 days 30 days All time') >= 0, 'range buttons sit with the totals they change');
+check(pText.indexOf('Stats Week 30 days All time') > pText.indexOf('Goals'), 'range buttons sit with the totals they change');
 shot('6-progress');
 const goalCard = byClass('qb-goal', pg).find(c => text(c).includes('Festkörperphysik'));
 const gDate = entries(goalCard).find(e => e.style_class.includes('qb-date'));
@@ -253,12 +257,12 @@ check(dash._undoBar.visible, 'reward delete shows Undo');
 G.runTimers(6000);
 check(!dash._undoBar.visible && !store.rewards().some(r => r.title === 'Kino'), 'the Undo bar goes away by itself; the delete stays');
 
-// ---- parseDate
+// ---- typed dates (store.parseDueDate, shared with the phone's rules)
 const ref = new Date(2026, 10, 18);
-const pd = t => util.parseDate(t, ref);
-check(pd('15.1.') === '2027-01-15' && pd('15.1') === '2027-01-15' && pd('20.12.') === '2026-12-20', 'parseDate: day.month → the next such day');
-check(pd('15.1.2027') === '2027-01-15' && pd('15.01.27') === '2027-01-15' && pd('2027-01-15') === '2027-01-15' && pd('+3') === '2026-11-21', 'parseDate: full dates and +N');
-check(pd('31.2.') === null && pd('hello') === null && pd('') === null, 'parseDate: rejects nonsense');
+const pd = t => parseDueDate(t, ref);
+check(pd('15.1.') === '2027-01-15' && pd('20.12.') === '2026-12-20', 'dates: day.month. → the next such day');
+check(pd('15.1.2027') === '2027-01-15' && pd('15.01.27') === '2027-01-15' && pd('2027-01-15') === '2027-01-15' && pd('+3') === '2026-11-21', 'dates: full dates and +N');
+check(pd('31.2.') === null && pd('hello') === null && pd('') === null, 'dates: nonsense is rejected');
 
 check(errors.length === 0, `no errors from any handler${errors.length ? `:\n${errors.slice(0, 5).join('\n')}` : ''}`);
 dash.destroy();

@@ -11,10 +11,10 @@ import St from 'gi://St';
 
 import {CalendarView} from './calendarView.js';
 import {HabitStrip, HabitsPage, ProgressPage, ShopPage} from './pages.js';
-import {QUADRANTS, STEP_XP, dueInDays, groupBonus, levelInfo, questXp} from './store.js';
+import {QUADRANTS, STEP_XP, dueInDays, groupBonus, levelInfo, parseDueDate, questXp} from './store.js';
 import {
     addDays, box, button, checkButton, clearChildren, dateKey, entry, flushEdits, fmtDate, fmtMinutes, fmtSpent, fmtTimer, gicon,
-    icon, iconButton, iconLabel, iconTextButton, label, parseDate, scroll, textButton,
+    icon, iconButton, iconLabel, iconTextButton, label, scroll, textButton,
 } from './util.js';
 
 const XP_BAR_W = 78;
@@ -104,6 +104,7 @@ export class Dashboard {
             shop: this.shopPage.actor,
             progress: this.progressPage.actor,
             detail: this._buildDetailPage(),
+            trash: this._buildTrashPage(),  // no tab: opened from "Recently deleted" under the matrix (like the phone)
         };
         for (const p of Object.values(this._pages))
             this._left.add_child(p);
@@ -434,6 +435,10 @@ export class Dashboard {
             this._quads[q.id] = {list, count};
         });
         page.add_child(this._grid);
+        // deleted by mistake? shown only when there is something to bring back
+        this._trashLink = button({style_class: 'qb-btn qb-flat qb-trash-link', x_align: Clutter.ActorAlign.START, visible: false,
+            child: iconLabel('qb-undo', '', 'qb-muted')}, () => this._setPage('trash'), 'trash-link');
+        page.add_child(this._trashLink);
 
         this._listView = this._buildQuestList();
         page.add_child(this._listView);
@@ -451,6 +456,9 @@ export class Dashboard {
             else
                 b.remove_style_pseudo_class('checked');
         }
+        const gone = this._store.deletedQuests().length;
+        this._trashLink.child.labelActor.text = `Recently deleted · ${gone}  (click to restore)`;
+        this._trashLink.visible = gone > 0 && !list;
         if (list) {
             this._renderQuestList(now);
             return;
@@ -757,22 +765,6 @@ export class Dashboard {
         }
         b.add_child(qr);
 
-        // topic / course: every topic, in rows of three
-        b.add_child(label('Topic / course', 'qb-section-title'));
-        const topics = this._store.topics();
-        if (q.topic && !topics.includes(q.topic))
-            topics.unshift(q.topic);
-        this._rows(b, topics.map(t => {
-            const btn = textButton(t, 'qb-small qb-seg', () => this._store.updateQuest(q.id, {topic: q.topic === t ? null : t}));
-            if (q.topic === t)
-                btn.add_style_pseudo_class('checked');
-            return btn;
-        }));
-        b.add_child(entry('New topic — Enter', 'qb-topic-entry', txt => {
-            if (txt.trim())
-                this._store.updateQuest(q.id, {topic: txt.trim()});
-        }, {x_expand: true}));
-
         // long-term goal
         b.add_child(label('Goal', 'qb-section-title'));
         const goals = this._store.goals().filter(g => !g.done || g.id === q.goalId);
@@ -809,8 +801,11 @@ export class Dashboard {
             dr.add_child(btn);
         }
         b.add_child(dr);
+        // any date: a day at a time from the current due date, or typed (24.12. · 24.12.2026 · 2026-12-24 · +3 · Fr)
         const dd = box({style_class: 'qb-actions-row'});
-        dd.add_child(label('or on', 'qb-muted'));
+        const base = q.due?.date ? new Date(`${q.due.date}T12:00`) : today;
+        dd.add_child(textButton('−1 day', 'qb-small', () => this._store.updateQuest(q.id, {due: {date: dateKey(addDays(base, -1))}})));
+        dd.add_child(textButton('+1 day', 'qb-small', () => this._store.updateQuest(q.id, {due: {date: dateKey(addDays(base, 1))}})));
         dd.add_child(this._dateEntry(q.due?.date, key => this._store.updateQuest(q.id, {due: {date: key}})));
         if (q.due)
             dd.add_child(iconButton('edit-clear-symbolic', 'qb-flat qb-tiny', () => this._store.updateQuest(q.id, {due: null}), 'Clear due date'));
@@ -829,14 +824,14 @@ export class Dashboard {
 
     /**
      * Date field. Empty, with the current date as its hint (so typing "15.1." needs no clearing first).
-     * Takes 15.1., 15.1.2027, 2027-01-15 or +10; saves on Enter or when you click elsewhere.
+     * Takes 24.12., 24.12.2026, 2026-12-24, +3 or a weekday (Fr); saves on Enter or when you click elsewhere.
      */
     _dateEntry(current, onDate) {
-        const shown = current ? fmtDate(new Date(`${current}T12:00`), '%a %e %b %Y').replace(/\s+/g, ' ') : 'Date, e.g. 15.1.';
+        const shown = current ? fmtDate(new Date(`${current}T12:00`), '%a %e %b %Y').replace(/\s+/g, ' ') : 'Date: 24.12. · +3 · Fr';
         const e = entry(shown, current ? 'qb-date has-value' : 'qb-date', t => {
             if (!t.trim())
                 return;
-            const key = parseDate(t);
+            const key = parseDueDate(t);
             if (key)
                 onDate(key);
             else
@@ -855,10 +850,7 @@ export class Dashboard {
         const foot = box({style_class: 'qb-page-foot'});
         this._archiveLabel = label('', 'qb-muted', {x_expand: true});
         foot.add_child(this._archiveLabel);
-        this._trashBtn = textButton('Recently deleted', 'qb-small', () => {
-            this._showTrash = !this._showTrash;
-            this.render(true);
-        });
+        this._trashBtn = textButton('Recently deleted', 'qb-small', () => this._setPage('trash'));
         foot.add_child(this._trashBtn);
         foot.add_child(textButton('Clear completed', 'qb-small', () => this._store.clearCompleted()));
         page.add_child(foot);
@@ -889,21 +881,35 @@ export class Dashboard {
             this._questsList.add_child(label('Your quest log is empty. Switch to the matrix view to add quests.', 'qb-empty'));
         const arch = this._store.archivedCount();
         this._archiveLabel.text = arch ? `${arch} older completed quest${arch === 1 ? '' : 's'} archived` : '';
-        // quests deleted in the last 30 days: Restore puts them back as they were
+        this._trashBtn.label = `Recently deleted (${this._store.deletedQuests().length})`;
+    }
+
+    // ---- recently deleted (no tab: from the link under the matrix or the list view's footer) ----
+
+    _buildTrashPage() {
+        const page = box({vertical: true, style_class: 'qb-page', x_expand: true, y_expand: true});
+        const head = box({style_class: 'qb-actions-row'});
+        head.add_child(iconTextButton('qb-chevron-left', 'Matrix', 'qb-small', () => this._setPage('matrix')));
+        head.add_child(label('Recently deleted', 'qb-section-title', {x_expand: true}));
+        page.add_child(head);
+        this._trashList = box({vertical: true, style_class: 'qb-quest-list'});
+        page.add_child(scroll(this._trashList, {y_expand: true}));
+        return page;
+    }
+
+    /** Quests deleted in the last 30 days; Restore puts them back as they were (quadrant, goal, steps, time). */
+    _renderTrashPage() {
+        clearChildren(this._trashList);
         const gone = this._store.deletedQuests();
-        this._trashBtn.label = `Recently deleted (${gone.length})`;
-        if (this._showTrash) {
-            this._questsList.add_child(label(`Recently deleted · ${gone.length}`, 'qb-section-title qb-section-done'));
-            if (!gone.length)
-                this._questsList.add_child(label('Nothing deleted in the last 30 days.', 'qb-muted'));
-            for (const q of gone) {
-                const row = box({style_class: 'qb-history-row'});
-                const days = Math.floor((Date.now() - (q.deletedAt ?? q.updatedAt ?? 0)) / 86400000);
-                row.add_child(label(q.title, 'qb-history-title', {ellipsize: true, x_expand: true}));
-                row.add_child(label(days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`, 'qb-muted'));
-                row.add_child(textButton('Restore', 'qb-small qb-accent', () => this._store.restoreQuest(q.id)));
-                this._questsList.add_child(row);
-            }
+        if (!gone.length)
+            this._trashList.add_child(label('Nothing deleted in the last 30 days.', 'qb-empty'));
+        for (const q of gone) {
+            const row = box({style_class: 'qb-history-row'});
+            const days = Math.floor((Date.now() - (q.deletedAt ?? q.updatedAt ?? 0)) / 86400000);
+            row.add_child(label(q.title, 'qb-history-title', {ellipsize: true, x_expand: true}));
+            row.add_child(label(`${days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`}${q.done ? ' · was done' : ''}`, 'qb-muted'));
+            row.add_child(textButton('Restore', 'qb-small qb-accent', () => this._store.restoreQuest(q.id)));
+            this._trashList.add_child(row);
         }
     }
 
@@ -1244,6 +1250,7 @@ export class Dashboard {
         case 'shop': this.shopPage.render(); break;
         case 'detail': this._renderDetail(now); break;
         case 'progress': this.progressPage.render(now); break;
+        case 'trash': this._renderTrashPage(); break;
         }
         this.calendar.render();
     }
