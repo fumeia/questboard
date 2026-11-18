@@ -284,6 +284,21 @@ export class Store {
         this._changed();
     }
 
+    /** Undo a delete: puts back the record as it was before (a newer write, so it wins on every device). */
+    restoreRecord(coll, rec) {
+        if (!rec?.id || !this.data.colls[coll])
+            return;
+        const {deleted: _d, deletedAt: _a, updatedAt: _u, ...rest} = rec;
+        this._put(coll, rest);
+        this._changed();
+    }
+
+    /** Snapshot of a record before it is deleted (for Undo). */
+    _snapshot(coll, id) {
+        const r = this.get(coll, id);
+        return r ? JSON.parse(JSON.stringify(r)) : null;
+    }
+
     _patch(coll, id, patch) {
         const r = this.get(coll, id);
         if (!r)
@@ -770,8 +785,10 @@ export class Store {
 
     /** Linked quests/steps keep their goalId; it simply no longer resolves. */
     deleteGoal(id) {
+        const old = this._snapshot('goals', id);
         this._del('goals', id); // XP for reaching it stays
         this._changed();
+        return old;
     }
 
     /**
@@ -1042,8 +1059,10 @@ export class Store {
     }
 
     deleteHabit(id) {
+        const old = this._snapshot('habits', id);
         this._del('habits', id); // check-ins & XP history stay
         this._changed();
+        return old;
     }
 
     isChecked(habitId, key = dateKey()) {
@@ -1124,8 +1143,10 @@ export class Store {
     }
 
     deleteReward(id) {
+        const old = this._snapshot('rewards', id);
         this._del('rewards', id);
         this._changed();
+        return old;
     }
 
     buy(rewardId) {

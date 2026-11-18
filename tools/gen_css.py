@@ -28,6 +28,20 @@ LIGHT_HEX = {
     "#ff7b72": "#c01c28", "#f9f06b": "#8a6100", "#ffbe6f": "#a33a00", "#eeeeec": "#1d1d20",
 }
 
+# Pairs the automatic swap gets wrong (tinted text on a tinted chip): hand-picked for contrast on the light popup.
+# Emitted after the generated light rules, so they win.
+LIGHT_OVERRIDES = {
+    ".qb-due.soon": "background-color: rgba(229,165,10,0.22); color: #7a5300;",
+    ".qb-due.urgent": "background-color: rgba(229,83,75,0.16); color: #a51d2d;",
+    ".qb-deadline.soon": "background-color: rgba(229,165,10,0.22);",
+    ".qb-deadline.behind": "background-color: rgba(229,83,75,0.2); color: #a51d2d;",
+    ".qb-quest-sched": "background-color: rgba(53,132,228,0.14); color: #1c5fb8;",
+    ".qb-quest-time.running": "color: #1a7f37;",
+    ".qb-running .qb-icon": "color: #1a7f37;",
+    ".qb-level-badge": "background-color: #f6d32d; color: #241f31;",
+    ".qb-xp-fill": "background-color: #e5a50a;",
+}
+
 
 def light_decls(decls, selector):
     def rgba(m):
@@ -59,6 +73,8 @@ def main():
         for theme in ("dark", "light"):
             d = decls if theme == "dark" else light_decls(decls, sel)
             out.append(", ".join(f".qb-{theme} {p}" for p in parts) + f" {{ {d} }}\n")
+    for sel, decls in LIGHT_OVERRIDES.items():
+        out.append(f".qb-light {sel} {{ {decls} }}\n")
     open(OUT, "w").write("".join(out))
     print(f"wrote {OUT} ({len(rules)} rules × 2 themes)")
 

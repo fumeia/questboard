@@ -121,8 +121,19 @@ and writes the same calendars GNOME uses — there is no separate Google login.
 
 Using it:
 - Matrix is the first view. Type into a quadrant's "Add quest…" box + Enter. Click a quest title for
-  actions: rename, notes, move quadrant, 25-min focus, schedule, due date, open in Notion, delete.
+  details: focus / stopwatch (or "Open Physics RPG") right under the title, then notes, quadrant, topic, goal, steps,
+  due date (buttons or a typed date: `15.1.`, `15.1.2027`, `+10`), time slot. Text fields save on Enter *and* when
+  you click elsewhere or close the popup.
+- The grid/list switch (top right of the Matrix) shows all open quests as one list, with "Recently deleted".
+- Goals with a deadline (your exams) show as a row of countdown chips under the header; red = behind pace.
+  Click one to open the goal. Deadlines can be an exact date.
+- Deleting a quest, goal, habit or reward shows **Undo** for a few seconds.
+- Reopening the popup within 2 minutes keeps the page you were on.
+- Physics RPG quests open the game instead of starting a timer (the game records the study time itself), and show
+  how many reviews (respawns) are due.
 - Habit strip above the matrix: one click = today's check-in. Full habit management in the **Habits** tab.
+- **Timers:** your timers first, then presets (one click starts); "+ Custom timer" opens the full form. Changing the
+  minutes there is for that timer only; the default lengths are in Settings.
 - **Shop:** click the coin counter. "Redeem" twice to buy; undo within 24 h.
 - **Calendar (right):** click an empty half-hour to add a quest or an event there; click an event to edit;
   `+` for a new event with all options.

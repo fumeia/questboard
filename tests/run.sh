@@ -17,3 +17,5 @@ QB_DIR=$T node sync_test.mjs
 mkdir -p $T/notion && python3 notion_test.py ../server $T/notion 2>&1 | grep -v '^INFO'
 python3 notion_matrix_test.py
 rm -rf build
+# 3) the popup itself, on stand-in widgets: every page renders and the flows work (no GNOME Shell needed)
+node --import ./ui/loader.mjs ui/ui_test.mjs
