@@ -144,12 +144,74 @@ export function button(params, onClick, where = 'button') {
     return b;
 }
 
-/** Entry that calls onSubmit(text) on Enter. */
+// Edit fields (commit: true) whose text has not been saved yet. flushEdits() saves them: on focus-out, before every
+// re-render (which would otherwise throw the typed text away) and when the popup closes.
+const _editEntries = new Set();
+let _flushQueued = 0;
+
+/**
+ * Entry that calls onSubmit(text, entry) on Enter. With `commit: true` it is an edit field: it also saves when it
+ * loses focus or the view is rebuilt, so typed text is never lost. "Add …" fields leave it off (no accidental adds).
+ */
 export function entry(hint, style_class, onSubmit, params = {}) {
-    const e = new St.Entry({hint_text: hint, style_class: `qb-entry ${style_class}`, can_focus: true, ...params});
-    e.clutter_text.connect('activate', guard(() => onSubmit(e.get_text(), e), 'entry'));
+    const {commit = false, ...rest} = params;
+    const e = new St.Entry({hint_text: hint, style_class: `qb-entry ${style_class}`, can_focus: true, ...rest});
+    e.clutter_text.connect('activate', guard(() => {
+        e._qbCommitted = e.get_text();
+        onSubmit(e.get_text(), e);
+    }, 'entry'));
+    if (commit) {
+        e._qbCommitted = e.get_text();
+        e._qbSubmit = onSubmit;
+        _editEntries.add(e);
+        e.connect('destroy', () => _editEntries.delete(e));
+        // deferred: saving re-renders, and rebuilding widgets in the middle of a focus change is not safe
+        e.clutter_text.connect('key-focus-out', () => {
+            if (_flushQueued)
+                return;
+            _flushQueued = GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+                _flushQueued = 0;
+                flushEdits();
+                return GLib.SOURCE_REMOVE;
+            });
+        });
+    }
     return e;
 }
+
+/** Save every edit field whose text changed since it was last saved. Returns how many were saved. */
+export function flushEdits() {
+    const pending = [];
+    for (const e of _editEntries) {
+        let t;
+        try {
+            t = e.get_text();
+        } catch {
+            continue;
+        }
+        if (t !== e._qbCommitted) {
+            e._qbCommitted = t;
+            pending.push([e, t]);
+        }
+    }
+    // the first save may re-render and destroy the other entries: their text was read above
+    for (const [e, t] of pending)
+        guard(() => e._qbSubmit(t, e), 'entry-commit')();
+    return pending.length;
+}
+
+/** Check box with a 24 px click area around the 16 px (or 12 px) box. */
+export function checkButton(checked, onClick, {small = false, accessible_name = '', where = 'check'} = {}) {
+    let cls = 'qb-check';
+    if (small)
+        cls += ' qb-check-small';
+    if (checked)
+        cls += ' checked';
+    const inner = new St.Bin({style_class: cls, child: icon('qb-check', 'qb-check-icon')});
+    return button({style_class: small ? 'qb-check-hit qb-check-hit-small' : 'qb-check-hit', child: inner,
+        y_align: Clutter.ActorAlign.CENTER, accessible_name}, onClick, where);
+}
+
 
 /** Parse "14:30", "1430", "9", "2:30pm", "9 am" → minutes since midnight, or null. */
 export function parseTime(text) {

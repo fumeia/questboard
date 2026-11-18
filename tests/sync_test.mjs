@@ -1,5 +1,5 @@
 import assert from 'assert';
-import {Store, levelInfo, habitXp} from './build/store.js';
+import {Store, levelInfo, habitXp, parseDueDate} from './build/store.js';
 const U=process.env.QB_URL, H={Authorization:'Bearer '+process.env.QB_TOKEN,'Content-Type':'application/json'};
 process.env.QB_DIR = process.env.T+'/desk'; const desk = new Store();
 process.env.QB_DIR = process.env.T+'/phone'; const phone = new Store();
@@ -75,7 +75,7 @@ assert(Math.abs(desk.questTimeMs(desk.getQuest(other.id)) - 25 * 60000) < 100, '
 assert(Math.abs(desk.goalProgress(goal.id).ms - 25 * 60000) < 100, 'and for the goal');
 desk.toggleStep(other.id, s1.id); desk.setDone(gq.id, true);
 assert.equal(desk.goalProgress(goal.id).done, 2); assert.equal(desk.goalProgress(goal.id).frac, 1);
-const sg = desk.stats(7).byGoal; assert.equal(sg.length, 1); assert(Math.abs(sg[0].ms - 25 * 60000) < 100, 'time per goal in stats');
+const sg = desk.stats(7).byGoal.filter(g => g.id); assert.equal(sg.length, 1); assert(Math.abs(sg[0].ms - 25 * 60000) < 100, 'time per goal in stats');
 const xpG = desk.xp; desk.setGoalDone(goal.id, true); assert.equal(desk.xp, xpG + 100, 'goal XP');
 await sync(desk); await sync(phone);
 assert.equal(phone.goals().length, 1, 'goal synced'); assert.equal(phone.goalProgress(goal.id).total, 2);
@@ -190,4 +190,38 @@ assert(!only.focusBlocks(k(noon)).some(f => f.id.startsWith('rpgtime.')), 'no fa
   desk.autoBreakMin = 5; const f = desk.startKind('pomodoro', 1, '', null); f.startedAt = Date.now() - 61000;
   desk.tick(); assert(desk.timers.some(x => x.kind === 'break' && x.startedAt), 'a break starts by itself after a Focus');
   for (const x of [...desk.timers]) desk.removeTimer(x.id); desk.autoBreakMin = 0; }
+// due dates typed on the desktop
+{ const t0 = new Date(2026, 10, 18); // Wednesday 18 Nov 2026
+  assert.equal(parseDueDate('24.12.', t0), '2026-12-24'); assert.equal(parseDueDate('24.12.2026', t0), '2026-12-24');
+  assert.equal(parseDueDate('2027-01-15', t0), '2027-01-15'); assert.equal(parseDueDate('+3', t0), '2026-11-21');
+  assert.equal(parseDueDate('3.1.', t0), '2027-01-03', 'a day already past this year means next year');
+  assert.equal(parseDueDate('Fr', t0), '2026-11-20'); assert.equal(parseDueDate('mi', t0), '2026-11-25', 'same weekday = next week');
+  assert.equal(parseDueDate('31.2.', t0), null); assert.equal(parseDueDate('soon', t0), null);
+  assert.equal(parseDueDate('Friday', t0), '2026-11-20'); assert.equal(parseDueDate('Montag', t0), '2026-11-23'); }
+// time per goal accounts for all time: what has no goal is listed as "No goal"
+{ const st = desk.stats(0); const total = st.byGoal.reduce((a, g) => a + g.ms, 0);
+  assert.equal(total, st.focusMs, 'time per goal adds up to all focus time');
+  assert(st.byGoal.some(g => g.title === 'No goal'), 'a No goal row'); }
+// stats: focus per day split by goal (stacked bars) adds up to the day's focus; goal colours keep their order
+{ const bars = desk.dailyByGoal(30); assert.equal(bars.length, 30); assert.equal(bars[29].date, k(new Date()));
+  const fp = desk.focusPerDay();
+  for (const d of bars) assert.equal(d.total, fp[d.date] ?? 0, `bars add up for ${d.date}`);
+  { process.env.QB_DIR = process.env.T + '/statsgoal'; const sg = new Store(); const g = sg.addGoal('5.5 in QM 1'); const q = sg.addQuest('Blatt 9', 'q2');
+    sg.updateQuest(q.id, {goalId: g.id}); sg.toggleQuestTimer(q.id); sg.runningTimers()[0].startedAt -= 20 * 60000; sg.toggleQuestTimer(q.id);
+    const today = sg.dailyByGoal(7)[6]; assert.equal(today.parts[0].id, g.id, 'today\'s bar is coloured by the goal');
+    assert(Math.abs(today.parts[0].ms - 20 * 60000) < 200); }
+  const order = desk.goalOrder(); assert.deepEqual(order, [...order].sort((a, b) => desk.data.colls.goals[a].createdAt - desk.data.colls.goals[b].createdAt)); }
+// calendar blocks: every focus timer and Physics RPG stretches with real times; pieces of one quest < 2 min apart are one block
+{ process.env.QB_DIR = process.env.T + '/blocks'; const cb = new Store(); const q = cb.addQuest('Blatt 9', 'q2');
+  const day = new Date(); day.setHours(9, 0, 0, 0); const t0 = day.getTime(), key = k(day);
+  const ses = (id, kind, a, b, extra = {}) => cb._put('sessions', {id, questId: q.id, kind, start: t0 + a * 60000, end: t0 + b * 60000,
+    durationMs: (b - a) * 60000, date: key, ...extra});
+  ses('s1', 'stopwatch', 0, 20); ses('s2', 'stopwatch', 21, 40); ses('s3', 'break', 40, 45); ses('s4', 'custom', 60, 60.5);
+  cb._put('sessions', {id: 'rpgtime.qm.x.derivation.1', questId: 'rpg.qm', kind: 'rpg', exact: true, label: 'derivations', start: t0 + 120 * 60000,
+    end: t0 + 150 * 60000, durationMs: 1800000, date: key});
+  cb._put('sessions', {id: 'rpgtime.qm.x.other', questId: 'rpg.qm', kind: 'rpg', label: 'not sorted', start: t0, end: t0 + 600000, durationMs: 600000, date: key});
+  const bl = cb.focusBlocks(key, t0 + 200 * 60000);
+  assert.equal(bl.length, 2, 'stopwatch pieces merged, break / under 1 min / day totals left out');
+  assert.equal(bl[0].end - bl[0].start, 40 * 60000, 'the merged stopwatch block runs 9:00–9:40');
+  assert(bl[1].rpg && bl[1].title.endsWith('· derivations') && bl[1].start === t0 + 120 * 60000, 'the game stretch at its real time'); }
 console.log('level', levelInfo(desk.xp), 'balance', desk.balance, '\nALL SYNC TESTS PASSED');

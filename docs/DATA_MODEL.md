@@ -7,7 +7,7 @@ tombstone (`deletedAt` added), so "Recently deleted" can restore it for 30 days 
 
 | Collection | Fields | Notes |
 |---|---|---|
-| `quests` | title, quadrant `q1..q4`, done, doneAt, createdAt, notes, scheduled `{date, start (min), duration}`, due `{date, time?}`, xp?, quadrantManual?, source?, link?, kind?, topic?, goalId?, steps? `[{id, title, done, goalId?}]`, progress? `{done, total, text}` | Notion quests: id `notion.<pageid>`; Physics RPG: id `rpg.<course>`, source `physics-rpg` |
+| `quests` | title, quadrant `q1..q4`, done, doneAt, createdAt, notes, scheduled `{date, start (min), duration}`, due `{date, time?}`, xp?, quadrantManual?, source?, link?, kind?, topic?, goalId?, steps? `[{id, title, done, goalId?}]`, progress? `{done, total, text, respawns?}`, respawns? | Notion quests: id `notion.<pageid>`; Physics RPG: id `rpg.<course>` (and `rpg.<course>.respawn`, kind `respawn`, with `respawns` = reviews due), source `physics-rpg` |
 | `goals` | title, notes, icon, targetDate?, done, doneAt, createdAt | long-term; quests link via `goalId`, single steps via `steps[].goalId` |
 | `habits` | title, icon, xp, target (1–7 per week), archived, createdAt | |
 | `checkins` | habitId, date | id = `<habitId>.<YYYY-MM-DD>` (deterministic → no duplicates) |

@@ -1,30 +1,61 @@
-// Popup content: header (level / XP / coins / streak / sync), left pane with
-// Matrix | Habits | Quests | Timers | Shop, and the day calendar on the right.
+// Popup content: header (level / XP / coins / streak / sync), a deadline row (goals with a date: exams),
+// left pane with Matrix (grid or list) | Habits | Timers | Shop | Progress, and the day calendar on the right.
 //
 // Performance: nothing is rebuilt while the popup is closed — changes only mark
 // the view stale, and the next open renders once.
 
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
 import St from 'gi://St';
 
 import {CalendarView} from './calendarView.js';
 import {HabitStrip, HabitsPage, ProgressPage, ShopPage} from './pages.js';
-import {QUADRANTS, STEP_XP, dueInDays, groupBonus, levelInfo, questXp} from './store.js';
+import {QUADRANTS, STEP_XP, dueInDays, groupBonus, levelInfo, parseDueDate, questXp} from './store.js';
 import {
-    addDays, box, button, clearChildren, dateKey, entry, fmtDate, fmtMinutes, fmtSpent, fmtTimer, gicon, icon, iconButton, iconLabel,
-    iconTextButton, label, scroll, textButton,
+    addDays, box, button, checkButton, clearChildren, dateKey, entry, flushEdits, fmtDate, fmtMinutes, fmtSpent, fmtTimer, gicon,
+    icon, iconButton, iconLabel, iconTextButton, label, scroll, textButton,
 } from './util.js';
 
 const XP_BAR_W = 78;
 const TABS = [
     ['matrix', 'qb-grid', 'Matrix'],
     ['habits', 'qb-repeat', 'Habits'],
-    ['quests', 'qb-list', 'Quests'],
     ['timers', 'qb-stopwatch', 'Timers'],
     ['shop', 'qb-shop', 'Shop'],
     ['progress', 'qb-trophy', 'Progress'],
 ];
+/** Reopening the popup within this time keeps the page you were on (e.g. after copying something from a PDF). */
+const KEEP_PAGE_MS = 2 * 60000;
+const UNDO_SECONDS = 6;
+const DEADLINE_CHIPS = 4;
+
+/** Physics RPG quests: the game records the study time itself, so they get an "open the game" button, not a timer. */
+const isRpg = q => q?.source === 'physics-rpg';
+
+/** Reviews due in the game: the course quest carries progress.respawns, the "respawns due" quest its own count. */
+function rpgReviews(q) {
+    if (!isRpg(q))
+        return 0;
+    if (q.kind === 'respawn')
+        return q.respawns ?? (parseInt(/: (\d+) respawns? due/.exec(q.title ?? '')?.[1] ?? '0', 10) || 0);
+    return q.progress?.respawns | 0;
+}
+
+/**
+ * Title as shown in a row. "Physics RPG · Quantenmechanik: 3 respawns due" was cut to "Physics RPG · Quan…" in a matrix cell:
+ * the game icon says where it comes from, the chip says how many are due, so the row shows just the course.
+ */
+function rowTitle(q) {
+    if (!isRpg(q) || !q.title?.startsWith('Physics RPG · '))
+        return q.title;
+    const t = q.title.slice('Physics RPG · '.length);
+    return q.kind === 'respawn' ? (q.topic || t.replace(/:.*$/, '')) : t;
+}
+
+function dueText(dd) {
+    return dd < 0 ? `${-dd}d late` : dd === 0 ? 'today' : dd === 1 ? 'tomorrow' : `in ${dd}d`;
+}
 
 export class Dashboard {
     constructor(ctx) {
@@ -35,10 +66,18 @@ export class Dashboard {
         this._open = false;
         this._stale = true;
         this._page = 'matrix';
+        this._matrixMode = 'grid'; // or 'list'
+        this._closedAt = 0;
         this._pickerFor = null;
+        this._stepGoalPick = null; // "questId/stepId" whose goal list is open
         this._openGroups = new Set(); // quests whose steps are shown inline
         this._detailId = null;
         this._newTimerQuest = null;
+        this._showNewTimer = false;
+        this._tKind = 'pomodoro';
+        this._tMinByKind = {}; // minutes picked for the next timer; the defaults in Settings stay as they are
+        this._undo = null;
+        this._undoId = 0;
         this._questTimeLabels = new Map();
         this._stepTimeLabels = new Map();
         this._timerWidgets = new Map();
@@ -47,6 +86,8 @@ export class Dashboard {
         this.actor.connect('destroy', () => this._cleanup());
 
         this._buildHeader();
+        this._deadlines = box({style_class: 'qb-deadlines', visible: false});
+        this.actor.add_child(this._deadlines);
 
         const body = box({style_class: 'qb-body', x_expand: true, y_expand: true});
         this._left = box({vertical: true, style_class: 'qb-left', x_expand: true, y_expand: true});
@@ -59,14 +100,17 @@ export class Dashboard {
         this._pages = {
             matrix: this._buildMatrixPage(),
             habits: this.habitsPage.actor,
-            quests: this._buildQuestsPage(),
             timers: this._buildTimersPage(),
             shop: this.shopPage.actor,
             progress: this.progressPage.actor,
             detail: this._buildDetailPage(),
+            trash: this._buildTrashPage(),  // no tab: opened from "Recently deleted" under the matrix (like the phone)
         };
         for (const p of Object.values(this._pages))
             this._left.add_child(p);
+
+        this._undoBar = box({style_class: 'qb-undo', visible: false});
+        this._left.add_child(this._undoBar);
         body.add_child(this._left);
 
         this.calendar = new CalendarView({...ctx, onQuestClick: id => this.openQuest(id)});
@@ -90,10 +134,14 @@ export class Dashboard {
         this._pickerFor = null;
         const calRebuild = this.calendar.onOpen();
         const day = dateKey();
-        if (this._page !== 'matrix' || this._stale || this._renderedDay !== day) {
-            this._setPage('matrix');      // full render, calendar included
+        // back within a couple of minutes: same page (a quest you had open stays open); otherwise start at the Matrix
+        const keep = t0 - this._closedAt < KEEP_PAGE_MS && this._renderedDay === day;
+        const page = keep ? this._page : 'matrix';
+        if (page !== this._page || this._page !== 'matrix' || this._stale || this._renderedDay !== day) {
+            this._setPage(page);      // full render, calendar included
         } else {
             this._renderHeader(t0);
+            this._renderDeadlines(t0);
             this._renderSync();
             if (calRebuild)
                 this.calendar.render();
@@ -101,7 +149,7 @@ export class Dashboard {
         this._log?.debug?.('perf', `popup ready in ${Date.now() - t0} ms`);
     }
 
-    /** Full rebuild of the matrix page and the calendar (fallback when opening failed). */
+    /** Full rebuild of the current page and the calendar (fallback when opening failed). */
     rebuild() {
         this._open = true;
         this._stale = true;
@@ -111,15 +159,23 @@ export class Dashboard {
     }
 
     showPage(page) {
+        if (page === 'quests') {
+            this._matrixMode = 'list';
+            page = 'matrix';
+        }
         if (this._pages[page])
             this._setPage(page);
     }
 
     onClose() {
+        flushEdits();             // text typed but not confirmed with Enter is saved, not lost
         this._open = false;
+        this._closedAt = Date.now();
         this.shopPage?.collapse();
         this.habitsPage?.collapse();
         this._pickerFor = null;
+        this._stepGoalPick = null;
+        this._clearUndo();
         this.calendar.onClose();
     }
 
@@ -149,8 +205,8 @@ export class Dashboard {
         this._streak = iconLabel('qb-flame', '', 'qb-stat qb-streak');
         this._doneToday = iconLabel('qb-check', '', 'qb-stat');
         this._focus = iconLabel('qb-stopwatch', '', 'qb-stat');
-        const coinBtn = button({style_class: 'qb-stat-btn', child: this._coins, y_align: Clutter.ActorAlign.CENTER},
-            () => this._setPage('shop'), 'coins');
+        const coinBtn = button({style_class: 'qb-stat-btn', child: this._coins, y_align: Clutter.ActorAlign.CENTER,
+            accessible_name: 'Coins: open the shop'}, () => this._setPage('shop'), 'coins');
         h.add_child(coinBtn);
         for (const s of [this._streak, this._doneToday, this._focus])
             h.add_child(s);
@@ -161,8 +217,8 @@ export class Dashboard {
         chipBox.add_child(icon('qb-stopwatch'));
         this._chipLabel = label('', 'qb-chip-label');
         chipBox.add_child(this._chipLabel);
-        this._chip = button({style_class: 'qb-chip', child: chipBox, visible: false, y_align: Clutter.ActorAlign.CENTER},
-            () => this._setPage('timers'), 'chip');
+        this._chip = button({style_class: 'qb-chip', child: chipBox, visible: false, y_align: Clutter.ActorAlign.CENTER,
+            accessible_name: 'Running timer'}, () => this._setPage('timers'), 'chip');
         h.add_child(this._chip);
 
         this._syncIcon = icon('qb-cloud');
@@ -189,9 +245,10 @@ export class Dashboard {
         const streak = this._store.streak();
         this._streak.labelActor.text = `${streak}d`;
         this._streak.visible = streak > 0;
-        this._doneToday.labelActor.text = String(this._store.completedOn());
+        // words next to the numbers: a bare tick or stopwatch with a number did not say what it counts
+        this._doneToday.labelActor.text = `${this._store.completedOn()} done`;
         const focus = fmtSpent(this._store.focusOn(undefined, now));
-        this._focus.labelActor.text = focus;
+        this._focus.labelActor.text = focus ? `${focus} focus` : '';
         this._focus.visible = !!focus;
 
         const running = this._store.runningTimers();
@@ -204,6 +261,38 @@ export class Dashboard {
         } else {
             this._chip.hide();
         }
+    }
+
+    /** Goals with a date (exams): days left, red when behind pace. A click opens the goal on the Progress page. */
+    _renderDeadlines(now = Date.now()) {
+        const row = this._deadlines;
+        clearChildren(row);
+        const today = dateKey(new Date(now));
+        const goals = this._store.goals().filter(g => !g.done && g.targetDate && g.targetDate >= today)
+            .sort((a, b) => a.targetDate.localeCompare(b.targetDate));
+        row.visible = goals.length > 0;
+        if (!goals.length)
+            return;
+        row.add_child(icon('qb-target', 'qb-icon qb-deadline-icon'));
+        for (const g of goals.slice(0, DEADLINE_CHIPS)) {
+            const pace = this._store.goalPace(g.id, now);
+            const days = pace?.daysLeft ?? 0;
+            const inner = box({style_class: 'qb-deadline-inner'});
+            inner.add_child(label(g.title, 'qb-deadline-title', {ellipsize: true}));
+            inner.add_child(label(days === 0 ? 'today' : `${days}d`, 'qb-deadline-days'));
+            let cls = 'qb-deadline';
+            if (pace && !pace.onTrack)
+                cls += ' behind';
+            else if (days <= 7)
+                cls += ' soon';
+            row.add_child(button({style_class: cls, child: inner, y_align: Clutter.ActorAlign.CENTER,
+                accessible_name: `${g.title}: ${days} days left${pace && !pace.onTrack ? ', behind pace' : ''}`}, () => {
+                this.progressPage.expandGoal(g.id);
+                this._setPage('progress');
+            }, 'deadline'));
+        }
+        if (goals.length > DEADLINE_CHIPS)
+            row.add_child(label(`+${goals.length - DEADLINE_CHIPS}`, 'qb-muted'));
     }
 
     /** Called by the extension when light/dark switches. */
@@ -243,6 +332,7 @@ export class Dashboard {
         if (page !== this._page) {
             this.shopPage?.collapse();
             this.habitsPage?.collapse();
+            this._stepGoalPick = null;
         }
         this._page = page;
         for (const [id, p] of Object.entries(this._pages))
@@ -257,14 +347,68 @@ export class Dashboard {
             this.render(true);
     }
 
+    // ---- undo ------------------------------------------------------------
+
+    /** "Deleted … · Undo" for a few seconds after a delete. */
+    showUndo(text, undo) {
+        this._clearUndo();
+        this._undo = {text, undo};
+        const bar = this._undoBar;
+        bar.add_child(icon('user-trash-symbolic', 'qb-icon qb-undo-icon'));
+        bar.add_child(label(text, 'qb-undo-label', {ellipsize: true, x_expand: true}));
+        bar.add_child(iconTextButton('qb-undo', 'Undo', 'qb-small qb-accent', () => {
+            const u = this._undo;
+            this._clearUndo();
+            u?.undo();
+        }));
+        bar.add_child(iconButton('window-close-symbolic', 'qb-flat qb-tiny', () => this._clearUndo(), 'Dismiss'));
+        bar.show();
+        this._undoId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, UNDO_SECONDS, () => {
+            this._undoId = 0;
+            this._clearUndo();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _clearUndo() {
+        if (this._undoId) {
+            GLib.source_remove(this._undoId);
+            this._undoId = 0;
+        }
+        this._undo = null;
+        if (this._undoBar) {
+            clearChildren(this._undoBar);
+            this._undoBar.hide();
+        }
+    }
+
+    deleteQuest(q) {
+        this._store.deleteQuest(q.id);
+        this.showUndo(`Deleted “${q.title}”`, () => this._store.restoreQuest(q.id));
+    }
+
     // ---- matrix ----------------------------------------------------------
 
     _buildMatrixPage() {
         const page = box({vertical: true, style_class: 'qb-page', x_expand: true, y_expand: true});
-        page.add_child(this.habitStrip.actor);
+        const top = box({style_class: 'qb-matrix-top'});
+        top.add_child(this.habitStrip.actor);
+        top.add_child(new St.Widget({x_expand: true}));
+        const views = box({style_class: 'qb-viewswitch', y_align: Clutter.ActorAlign.CENTER});
+        this._viewBtns = {};
+        for (const [mode, ic, name] of [['grid', 'qb-grid', 'Matrix view'], ['list', 'qb-list', 'List view']]) {
+            const b = iconButton(ic, 'qb-flat qb-tiny qb-view-btn', () => {
+                this._matrixMode = mode;
+                this.render(true);
+            }, name);
+            this._viewBtns[mode] = b;
+            views.add_child(b);
+        }
+        top.add_child(views);
+        page.add_child(top);
 
         const grid = new Clutter.GridLayout({column_homogeneous: true, row_homogeneous: true, column_spacing: 8, row_spacing: 8});
-        const w = new St.Widget({layout_manager: grid, x_expand: true, y_expand: true, style_class: 'qb-matrix',
+        this._grid = new St.Widget({layout_manager: grid, x_expand: true, y_expand: true, style_class: 'qb-matrix',
             natural_height: 200, clip_to_allocation: true});
         this._quads = {};
         QUADRANTS.forEach((q, i) => {
@@ -290,29 +434,63 @@ export class Dashboard {
             grid.attach(card, i % 2, Math.floor(i / 2), 1, 1);
             this._quads[q.id] = {list, count};
         });
-        page.add_child(w);
+        page.add_child(this._grid);
+        // deleted by mistake? shown only when there is something to bring back
+        this._trashLink = button({style_class: 'qb-btn qb-flat qb-trash-link', x_align: Clutter.ActorAlign.START, visible: false,
+            child: iconLabel('qb-undo', '', 'qb-muted')}, () => this._setPage('trash'), 'trash-link');
+        page.add_child(this._trashLink);
+
+        this._listView = this._buildQuestList();
+        page.add_child(this._listView);
         return page;
     }
 
     _renderMatrix(now) {
         this.habitStrip.render();
+        const list = this._matrixMode === 'list';
+        this._grid.visible = !list;
+        this._listView.visible = list;
+        for (const [mode, b] of Object.entries(this._viewBtns)) {
+            if (mode === this._matrixMode)
+                b.add_style_pseudo_class('checked');
+            else
+                b.remove_style_pseudo_class('checked');
+        }
+        const gone = this._store.deletedQuests().length;
+        this._trashLink.child.labelActor.text = `Recently deleted · ${gone}  (click to restore)`;
+        this._trashLink.visible = gone > 0 && !list;
+        if (list) {
+            this._renderQuestList(now);
+            return;
+        }
         for (const q of QUADRANTS) {
-            const {list, count} = this._quads[q.id];
-            clearChildren(list);
+            const {list: l, count} = this._quads[q.id];
+            clearChildren(l);
             const quests = this._store.visibleQuests(q.id);
             const open = quests.filter(x => !x.done).length;
             count.text = open ? String(open) : '';
             count.visible = open > 0;
             if (!quests.length)
-                list.add_child(label(q.id === 'q4' ? 'Nothing to drop' : 'No quests yet', 'qb-empty'));
+                l.add_child(label(q.id === 'q4' ? 'Nothing to drop' : 'No quests yet', 'qb-empty'));
             for (const quest of quests)
-                list.add_child(this._questRow(quest, now));
+                l.add_child(this._questRow(quest, now, {compact: true}));
         }
     }
 
     // ---- quest row -------------------------------------------------------
 
-    _questRow(q, now, {showDot = false} = {}) {
+    openRpg(q) {
+        if (!q?.link)
+            return;
+        Gio.AppInfo.launch_default_for_uri(q.link, null);
+        this.ctx.closeMenu();
+    }
+
+    /**
+     * Two lines: [check] title [steps] [timer/play] on top, the details as small chips below.
+     * compact (matrix cells, ~210 px wide): at most two chips, in the order due date, reviews due, time slot, progress, time.
+     */
+    _questRow(q, now, {showDot = false, compact = false} = {}) {
         const steps = q.steps ?? [];
         const groupOpen = this._openGroups.has(q.id);
         let cls = 'qb-quest';
@@ -321,17 +499,15 @@ export class Dashboard {
         const wrap = box({vertical: true, style_class: cls});
         const row = box({style_class: 'qb-quest-row'});
 
-        row.add_child(button({
-            style_class: q.done ? 'qb-check checked' : 'qb-check',
-            child: icon('qb-check', 'qb-check-icon'),
-            y_align: Clutter.ActorAlign.CENTER,
-            accessible_name: q.done ? 'Mark as not done' : 'Complete quest',
-        }, () => this._store.setDone(q.id, !q.done), 'check'));
+        row.add_child(checkButton(q.done, () => this._store.setDone(q.id, !q.done),
+            {accessible_name: q.done ? 'Mark as not done' : 'Complete quest'}));
 
         if (showDot)
             row.add_child(new St.Widget({style_class: `qb-dot qb-${q.quadrant}`, y_align: Clutter.ActorAlign.CENTER}));
 
-        const titleLbl = label(q.title, 'qb-quest-title', {ellipsize: true, x_expand: true, x_align: Clutter.ActorAlign.START});
+        if (isRpg(q))
+            row.add_child(new St.Icon({gicon: gicon('qb-game'), style_class: 'qb-icon qb-src-icon', y_align: Clutter.ActorAlign.CENTER}));
+        const titleLbl = label(rowTitle(q), 'qb-quest-title', {ellipsize: true, x_expand: true, x_align: Clutter.ActorAlign.START});
         row.add_child(button({style_class: 'qb-quest-title-btn', child: titleLbl, x_expand: true},
             () => this.openQuest(q.id), 'quest-title'));
 
@@ -341,7 +517,7 @@ export class Dashboard {
             inner.add_child(label(`${pr.done}/${pr.total}`, 'qb-progress-pill-label'));
             inner.add_child(icon(groupOpen ? 'pan-up-symbolic' : 'pan-down-symbolic', 'qb-icon qb-tiny-icon'));
             row.add_child(button({style_class: pr.done === pr.total ? 'qb-progress-pill full' : 'qb-progress-pill', child: inner,
-                y_align: Clutter.ActorAlign.CENTER, accessible_name: 'Show steps'}, () => {
+                y_align: Clutter.ActorAlign.CENTER, accessible_name: groupOpen ? 'Hide steps' : 'Show steps'}, () => {
                 if (groupOpen)
                     this._openGroups.delete(q.id);
                 else
@@ -349,38 +525,67 @@ export class Dashboard {
                 this.render(true);
             }, 'group-toggle'));
         }
-        if (this._store.getGoal(q.goalId))
-            row.add_child(icon('qb-star', 'qb-icon qb-src-icon'));
-        const ext = this._store.extProgress(q);
-        if (ext)
-            row.add_child(label(`${ext.done}/${ext.total}`, ext.done === ext.total ? 'qb-progress-pill full' : 'qb-progress-pill',
-                {y_align: Clutter.ActorAlign.CENTER}));
-        if (q.source === 'notion')
-            row.add_child(icon('qb-book', 'qb-icon qb-src-icon'));
-        if (q.gcal)
-            row.add_child(icon('x-office-calendar-symbolic', 'qb-icon qb-src-icon'));
-        const t = q.scheduled?.start ?? q.eventTime?.start;
-        if (t !== undefined && t !== null)
-            row.add_child(label(fmtMinutes(t), 'qb-quest-sched'));
-        const dd = q.done ? null : dueInDays(q);
-        if (dd !== null) {
-            const txt = dd < 0 ? `${-dd}d late` : dd === 0 ? 'today' : dd === 1 ? 'tomorrow' : `in ${dd}d`;
-            row.add_child(label(txt, dd <= 0 ? 'qb-due urgent' : dd <= 3 ? 'qb-due soon' : 'qb-due'));
+
+        const running = this._store.isQuestRunning(q.id);
+        const spentText = fmtSpent(this._store.questTimeMs(q, now));
+        if (running) {
+            const spent = label(spentText, 'qb-quest-time running');
+            this._questTimeLabels.set(q.id, {label: spent, quest: q});
+            row.add_child(spent);
         }
-
-        const spent = label(fmtSpent(this._store.questTimeMs(q, now)), 'qb-quest-time');
-        this._questTimeLabels.set(q.id, {label: spent, quest: q});
-        row.add_child(spent);
-
         if (!q.done) {
-            const running = this._store.isQuestRunning(q.id);
-            row.add_child(iconButton(
-                running ? 'media-playback-pause-symbolic' : 'media-playback-start-symbolic',
-                running ? 'qb-flat qb-tiny qb-running' : 'qb-flat qb-tiny',
-                () => this._store.toggleQuestTimer(q.id),
-                running ? 'Pause timer' : 'Start timer'));
+            if (isRpg(q) && q.link) {
+                row.add_child(iconButton('qb-game', 'qb-flat qb-tiny', () => this.openRpg(q), 'Open Physics RPG'));
+            } else {
+                row.add_child(iconButton(
+                    running ? 'media-playback-pause-symbolic' : 'media-playback-start-symbolic',
+                    running ? 'qb-flat qb-tiny qb-running' : 'qb-flat qb-tiny',
+                    () => this._store.toggleQuestTimer(q.id),
+                    running ? 'Pause timer' : 'Start timer'));
+            }
         }
         wrap.add_child(row);
+
+        // second line: chips by importance
+        const chips = [];
+        const dd = q.done ? null : dueInDays(q);
+        if (dd !== null)
+            chips.push(() => label(dueText(dd), dd <= 0 ? 'qb-due urgent' : dd <= 3 ? 'qb-due soon' : 'qb-due'));
+        const reviews = q.done ? 0 : rpgReviews(q);
+        if (reviews > 0)
+            chips.push(() => label(`${reviews} review${reviews === 1 ? '' : 's'} due`, 'qb-due soon'));
+        const t = q.scheduled?.start ?? q.eventTime?.start;
+        if (t !== undefined && t !== null)
+            chips.push(() => label(fmtMinutes(t), 'qb-quest-sched'));
+        const ext = this._store.extProgress(q);
+        if (ext)
+            chips.push(() => label(`${ext.done}/${ext.total}`, ext.done === ext.total ? 'qb-progress-pill full' : 'qb-progress-pill'));
+        if (!running && spentText) {
+            chips.push(() => {
+                const spent = label(spentText, 'qb-quest-time');
+                this._questTimeLabels.set(q.id, {label: spent, quest: q});
+                return spent;
+            });
+        }
+        const icons = [];
+        if (!compact) {
+            if (this._store.getGoal(q.goalId))
+                icons.push('qb-star');
+            if (q.source === 'notion')
+                icons.push('qb-book');
+            if (q.gcal)
+                icons.push('x-office-calendar-symbolic');
+        }
+        const shown = compact ? chips.slice(0, 2) : chips;
+        if (shown.length || icons.length) {
+            const meta = box({style_class: showDot ? 'qb-quest-meta qb-quest-meta-dot' : 'qb-quest-meta'});
+            for (const make of shown)
+                meta.add_child(make());
+            for (const ic of icons)
+                meta.add_child(icon(ic, 'qb-icon qb-src-icon'));
+            wrap.add_child(meta);
+        }
+
         if (groupOpen && steps.length) {
             const list = box({vertical: true, style_class: 'qb-steps'});
             for (const st of steps)
@@ -392,11 +597,12 @@ export class Dashboard {
 
     _stepRow(q, st, editable, now = Date.now()) {
         const row = box({style_class: st.done ? 'qb-step done' : 'qb-step'});
-        row.add_child(button({style_class: st.done ? 'qb-check qb-check-small checked' : 'qb-check qb-check-small',
-            child: icon('qb-check', 'qb-check-icon'), y_align: Clutter.ActorAlign.CENTER}, () => this._store.toggleStep(q.id, st.id), 'step'));
+        row.add_child(checkButton(st.done, () => this._store.toggleStep(q.id, st.id),
+            {small: true, accessible_name: st.done ? 'Mark step as not done' : 'Complete step', where: 'step'}));
         const goal = this._store.getGoal(st.goalId);
         if (editable) {
-            row.add_child(entry('Step', 'qb-step-entry', txt => this._store.renameStep(q.id, st.id, txt), {text: st.title, x_expand: true}));
+            row.add_child(entry('Step', 'qb-step-entry', txt => txt.trim() && this._store.renameStep(q.id, st.id, txt.trim()),
+                {text: st.title, x_expand: true, commit: true}));
         } else {
             row.add_child(label(st.title, 'qb-step-title', {ellipsize: true, x_expand: true}));
             if (goal)
@@ -407,28 +613,45 @@ export class Dashboard {
         this._stepTimeLabels.set(`${q.id}/${st.id}`, {label: spent, questId: q.id, stepId: st.id});
         row.add_child(spent);
         const running = this._store.isStepRunning(q.id, st.id);
-        if (!st.done || running) {
+        if ((!st.done || running) && !isRpg(q)) {
             const pomo = this._settings.get_int('pomodoro-minutes');
             row.add_child(iconButton(running ? 'media-playback-pause-symbolic' : 'qb-target',
                 running ? 'qb-flat qb-tiny qb-running' : 'qb-flat qb-tiny',
                 () => this._store.toggleStepPomodoro(q.id, st.id, pomo),
                 running ? 'Pause step timer' : `${pomo}m focus on this step`));
         }
-        if (editable) {
-            // cycle: no goal → each open goal → no goal
-            const goals = this._store.goals().filter(g => !g.done);
-            if (goals.length || goal) {
-                const ids = [null, ...goals.map(g => g.id)];
-                const next = ids[(ids.indexOf(goal?.id ?? null) + 1) % ids.length];
-                const gb = textButton(goal ? goal.title : 'Goal…', 'qb-small qb-seg qb-step-goal',
-                    () => this._store.setStepGoal(q.id, st.id, next));
-                if (goal)
-                    gb.add_style_pseudo_class('checked');
-                row.add_child(gb);
-            }
-            row.add_child(iconButton('window-close-symbolic', 'qb-flat qb-tiny', () => this._store.deleteStep(q.id, st.id), 'Remove step'));
+        if (!editable)
+            return row;
+
+        // goal: a small list to pick from (cycling through every goal took one click per goal)
+        const key = `${q.id}/${st.id}`;
+        const goals = this._store.goals().filter(g => !g.done);
+        if (goals.length || goal) {
+            const gb = textButton(goal ? goal.title : 'Goal…', 'qb-small qb-seg qb-step-goal', () => {
+                this._stepGoalPick = this._stepGoalPick === key ? null : key;
+                this.render(true);
+            });
+            if (goal)
+                gb.add_style_pseudo_class('checked');
+            row.add_child(gb);
         }
-        return row;
+        row.add_child(iconButton('window-close-symbolic', 'qb-flat qb-tiny', () => this._store.deleteStep(q.id, st.id), 'Remove step'));
+        if (this._stepGoalPick !== key)
+            return row;
+        const col = box({vertical: true});
+        col.add_child(row);
+        const pick = box({vertical: true, style_class: 'qb-picker'});
+        const choose = id => {
+            this._stepGoalPick = null;
+            this._store.setStepGoal(q.id, st.id, id);
+        };
+        pick.add_child(textButton('No goal', goal ? 'qb-pick' : 'qb-pick checked', () => choose(null)));
+        for (const g of goals) {
+            const b = textButton(g.title, g.id === goal?.id ? 'qb-pick checked' : 'qb-pick', () => choose(g.id));
+            pick.add_child(b);
+        }
+        col.add_child(pick);
+        return col;
     }
 
     // ---- quest details (full-width page) ---------------------------------
@@ -446,6 +669,18 @@ export class Dashboard {
         return page;
     }
 
+    /** Rows of n buttons (St boxes do not wrap; one long row would push the calendar out of the popup). */
+    _rows(parent, buttons, n = 3) {
+        let row = null;
+        buttons.forEach((b, i) => {
+            if (i % n === 0) {
+                row = box({style_class: 'qb-actions-row'});
+                parent.add_child(row);
+            }
+            row.add_child(b);
+        });
+    }
+
     _renderDetail(now) {
         const b = this._detailBody;
         clearChildren(b);
@@ -455,7 +690,7 @@ export class Dashboard {
         head.add_child(new St.Widget({x_expand: true}));
         if (q) {
             head.add_child(iconButton('user-trash-symbolic', 'qb-flat qb-danger', () => {
-                this._store.deleteQuest(q.id);
+                this.deleteQuest(q);
                 this._setPage(this._returnPage ?? 'matrix');
             }, 'Delete quest'));
         }
@@ -466,16 +701,46 @@ export class Dashboard {
         }
 
         const titleRow = box({style_class: 'qb-actions-row'});
-        titleRow.add_child(button({style_class: q.done ? 'qb-check checked' : 'qb-check', child: icon('qb-check', 'qb-check-icon'),
-            y_align: Clutter.ActorAlign.CENTER}, () => this._store.setDone(q.id, !q.done), 'detail-check'));
+        titleRow.add_child(checkButton(q.done, () => this._store.setDone(q.id, !q.done),
+            {accessible_name: q.done ? 'Mark as not done' : 'Complete quest', where: 'detail-check'}));
         titleRow.add_child(entry('Title', 'qb-detail-title', t => t.trim() && this._store.updateQuest(q.id, {title: t.trim()}),
-            {text: q.title, x_expand: true}));
+            {text: q.title, x_expand: true, commit: true}));
         b.add_child(titleRow);
-        b.add_child(entry('Notes (Enter to save)', '', t => this._store.updateQuest(q.id, {notes: t}), {text: q.notes ?? '', x_expand: true}));
+
+        // the things you came here to do, right under the title
+        if (!q.done) {
+            const fr = box({style_class: 'qb-actions-row'});
+            if (isRpg(q)) {
+                if (q.link)
+                    fr.add_child(iconTextButton('qb-game', 'Open Physics RPG', 'qb-small qb-accent', () => this.openRpg(q)));
+                fr.add_child(label('Study time comes from the game, so there is no timer here (it would count twice).',
+                    'qb-muted', {wrap: true, x_expand: true}));
+            } else {
+                const pomo = this._settings.get_int('pomodoro-minutes');
+                fr.add_child(iconTextButton('qb-target', `${pomo}m focus`, 'qb-small qb-accent', () => this._store.startPomodoro(q.id, pomo)));
+                const running = this._store.isQuestRunning(q.id);
+                fr.add_child(iconTextButton(running ? 'qb-pause' : 'qb-play', running ? 'Pause stopwatch' : 'Stopwatch', 'qb-small',
+                    () => this._store.toggleQuestTimer(q.id)));
+                fr.add_child(new St.Widget({x_expand: true}));
+                if (q.link) {
+                    const text = q.source === 'notion' ? 'Open in Notion' : 'Open link';
+                    fr.add_child(iconTextButton('qb-book', text, 'qb-small', () => {
+                        Gio.AppInfo.launch_default_for_uri(q.link, null);
+                        this.ctx.closeMenu();
+                    }));
+                }
+            }
+            b.add_child(fr);
+        }
+
+        b.add_child(entry('Notes', '', t => this._store.updateQuest(q.id, {notes: t}), {text: q.notes ?? '', x_expand: true, commit: true}));
 
         const ext = this._store.extProgress(q);
+        const reviews = rpgReviews(q);
+        if (reviews > 0)
+            b.add_child(label(`${reviews} review${reviews === 1 ? '' : 's'} due in the game: do those first.`, 'qb-due soon', {x_align: Clutter.ActorAlign.START}));
         if (ext)
-            b.add_child(label(ext.text, 'qb-muted', {x_align: Clutter.ActorAlign.START}));
+            b.add_child(label(ext.text, 'qb-muted', {x_align: Clutter.ActorAlign.START, wrap: true}));
 
         // XP line
         const xpRow = box({style_class: 'qb-actions-row'});
@@ -500,34 +765,17 @@ export class Dashboard {
         }
         b.add_child(qr);
 
-        // topic / course
-        b.add_child(label('Topic / course', 'qb-section-title'));
-        const tr0 = box({style_class: 'qb-actions-row qb-wrap-row'});
-        for (const t of this._store.topics().slice(0, 6)) {
-            const btn = textButton(t, 'qb-small qb-seg', () => this._store.updateQuest(q.id, {topic: q.topic === t ? null : t}));
-            if (q.topic === t)
-                btn.add_style_pseudo_class('checked');
-            tr0.add_child(btn);
-        }
-        tr0.add_child(entry(q.topic ? 'Rename / new topic' : 'New topic — Enter', 'qb-topic-entry', txt => {
-            if (txt.trim())
-                this._store.updateQuest(q.id, {topic: txt.trim()});
-        }, {x_expand: true}));
-        b.add_child(tr0);
-
         // long-term goal
         b.add_child(label('Goal', 'qb-section-title'));
-        const gr = box({style_class: 'qb-actions-row qb-wrap-row'});
         const goals = this._store.goals().filter(g => !g.done || g.id === q.goalId);
         if (!goals.length)
-            gr.add_child(label('No goals yet. Add long-term goals on the Progress tab; single steps can be linked too.', 'qb-muted', {wrap: true}));
-        for (const g of goals) {
+            b.add_child(label('No goals yet. Add long-term goals on the Progress tab; single steps can be linked too.', 'qb-muted', {wrap: true}));
+        this._rows(b, goals.map(g => {
             const btn = textButton(g.title, 'qb-small qb-seg', () => this._store.updateQuest(q.id, {goalId: q.goalId === g.id ? null : g.id}));
             if (q.goalId === g.id)
                 btn.add_style_pseudo_class('checked');
-            gr.add_child(btn);
-        }
-        b.add_child(gr);
+            return btn;
+        }), 2);
 
         // steps
         b.add_child(label(steps.length ? `Steps · ${this._store.stepProgress(q).done}/${steps.length}` : 'Steps (turn this into a group)', 'qb-section-title'));
@@ -552,11 +800,16 @@ export class Dashboard {
                 btn.add_style_pseudo_class('checked');
             dr.add_child(btn);
         }
-        if (q.due)
-            dr.add_child(label(fmtDate(new Date(`${q.due.date}T12:00`), '%a %e %b'), 'qb-muted'));
-        if (q.due)
-            dr.add_child(iconButton('edit-clear-symbolic', 'qb-flat qb-tiny', () => this._store.updateQuest(q.id, {due: null}), 'Clear due date'));
         b.add_child(dr);
+        // any date: a day at a time from the current due date, or typed (24.12. · 24.12.2026 · 2026-12-24 · +3 · Fr)
+        const dd = box({style_class: 'qb-actions-row'});
+        const base = q.due?.date ? new Date(`${q.due.date}T12:00`) : today;
+        dd.add_child(textButton('−1 day', 'qb-small', () => this._store.updateQuest(q.id, {due: {date: dateKey(addDays(base, -1))}})));
+        dd.add_child(textButton('+1 day', 'qb-small', () => this._store.updateQuest(q.id, {due: {date: dateKey(addDays(base, 1))}})));
+        dd.add_child(this._dateEntry(q.due?.date, key => this._store.updateQuest(q.id, {due: {date: key}})));
+        if (q.due)
+            dd.add_child(iconButton('edit-clear-symbolic', 'qb-flat qb-tiny', () => this._store.updateQuest(q.id, {due: null}), 'Clear due date'));
+        b.add_child(dd);
 
         const tr = box({style_class: 'qb-actions-row'});
         const s = q.scheduled;
@@ -567,47 +820,44 @@ export class Dashboard {
         if (s)
             tr.add_child(iconButton('edit-clear-symbolic', 'qb-flat qb-tiny', () => this._store.updateQuest(q.id, {scheduled: null}), 'Unschedule'));
         b.add_child(tr);
-
-        // focus + links
-        if (!q.done) {
-            const fr = box({style_class: 'qb-actions-row'});
-            const pomo = this._settings.get_int('pomodoro-minutes');
-            fr.add_child(iconTextButton('qb-target', `${pomo}m focus`, 'qb-small', () => this._store.startPomodoro(q.id, pomo)));
-            const running = this._store.isQuestRunning(q.id);
-            fr.add_child(iconTextButton(running ? 'qb-pause' : 'qb-play', running ? 'Pause stopwatch' : 'Stopwatch', 'qb-small',
-                () => this._store.toggleQuestTimer(q.id)));
-            fr.add_child(new St.Widget({x_expand: true}));
-            if (q.link) {
-                const label = q.source === 'physics-rpg' ? 'Open Physics RPG' : q.source === 'notion' ? 'Open in Notion' : 'Open link';
-                fr.add_child(iconTextButton('qb-book', label, 'qb-small', () => {
-                    Gio.AppInfo.launch_default_for_uri(q.link, null);
-                    this.ctx.closeMenu();
-                }));
-            }
-            b.add_child(fr);
-        }
     }
 
-    // ---- quests page -----------------------------------------------------
+    /**
+     * Date field. Empty, with the current date as its hint (so typing "15.1." needs no clearing first).
+     * Takes 24.12., 24.12.2026, 2026-12-24, +3 or a weekday (Fr); saves on Enter or when you click elsewhere.
+     */
+    _dateEntry(current, onDate) {
+        const shown = current ? fmtDate(new Date(`${current}T12:00`), '%a %e %b %Y').replace(/\s+/g, ' ') : 'Date: 24.12. · +3 · Fr';
+        const e = entry(shown, current ? 'qb-date has-value' : 'qb-date', t => {
+            if (!t.trim())
+                return;
+            const key = parseDueDate(t);
+            if (key)
+                onDate(key);
+            else
+                e.add_style_pseudo_class('error');
+        }, {commit: true});
+        e.clutter_text.connect('text-changed', () => e.remove_style_pseudo_class('error'));
+        return e;
+    }
 
-    _buildQuestsPage() {
-        const page = box({vertical: true, style_class: 'qb-page', x_expand: true, y_expand: true});
+    // ---- list view of the matrix (was the Quests tab) ---------------------
+
+    _buildQuestList() {
+        const page = box({vertical: true, x_expand: true, y_expand: true, visible: false});
         this._questsList = box({vertical: true, style_class: 'qb-quest-list'});
         page.add_child(scroll(this._questsList, {y_expand: true}));
         const foot = box({style_class: 'qb-page-foot'});
         this._archiveLabel = label('', 'qb-muted', {x_expand: true});
         foot.add_child(this._archiveLabel);
-        this._trashBtn = textButton('Recently deleted', 'qb-small', () => {
-            this._showTrash = !this._showTrash;
-            this.render(true);
-        });
+        this._trashBtn = textButton('Recently deleted', 'qb-small', () => this._setPage('trash'));
         foot.add_child(this._trashBtn);
         foot.add_child(textButton('Clear completed', 'qb-small', () => this._store.clearCompleted()));
         page.add_child(foot);
         return page;
     }
 
-    _renderQuestsPage(now) {
+    _renderQuestList(now) {
         clearChildren(this._questsList);
         const open = this._store.openQuests();
         for (const quad of QUADRANTS) {
@@ -628,48 +878,60 @@ export class Dashboard {
                 this._questsList.add_child(this._questRow(q, now, {showDot: true}));
         }
         if (!open.length && !doneToday.length)
-            this._questsList.add_child(label('Your quest log is empty. Add quests in the Matrix.', 'qb-empty'));
+            this._questsList.add_child(label('Your quest log is empty. Switch to the matrix view to add quests.', 'qb-empty'));
         const arch = this._store.archivedCount();
         this._archiveLabel.text = arch ? `${arch} older completed quest${arch === 1 ? '' : 's'} archived` : '';
-        // quests deleted in the last 30 days: Restore puts them back as they were
+        this._trashBtn.label = `Recently deleted (${this._store.deletedQuests().length})`;
+    }
+
+    // ---- recently deleted (no tab: from the link under the matrix or the list view's footer) ----
+
+    _buildTrashPage() {
+        const page = box({vertical: true, style_class: 'qb-page', x_expand: true, y_expand: true});
+        const head = box({style_class: 'qb-actions-row'});
+        head.add_child(iconTextButton('qb-chevron-left', 'Matrix', 'qb-small', () => this._setPage('matrix')));
+        head.add_child(label('Recently deleted', 'qb-section-title', {x_expand: true}));
+        page.add_child(head);
+        this._trashList = box({vertical: true, style_class: 'qb-quest-list'});
+        page.add_child(scroll(this._trashList, {y_expand: true}));
+        return page;
+    }
+
+    /** Quests deleted in the last 30 days; Restore puts them back as they were (quadrant, goal, steps, time). */
+    _renderTrashPage() {
+        clearChildren(this._trashList);
         const gone = this._store.deletedQuests();
-        this._trashBtn.label = `Recently deleted (${gone.length})`;
-        if (this._showTrash) {
-            this._questsList.add_child(label(`Recently deleted · ${gone.length}`, 'qb-section-title'));
-            if (!gone.length)
-                this._questsList.add_child(label('Nothing deleted in the last 30 days.', 'qb-muted'));
-            for (const q of gone) {
-                const row = box({style_class: 'qb-history-row'});
-                const days = Math.floor((Date.now() - (q.deletedAt ?? q.updatedAt ?? 0)) / 86400000);
-                row.add_child(label(q.title, 'qb-history-title', {ellipsize: true, x_expand: true}));
-                row.add_child(label(days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`, 'qb-muted'));
-                row.add_child(textButton('Restore', 'qb-small qb-accent', () => this._store.restoreQuest(q.id)));
-                this._questsList.add_child(row);
-            }
+        if (!gone.length)
+            this._trashList.add_child(label('Nothing deleted in the last 30 days.', 'qb-empty'));
+        for (const q of gone) {
+            const row = box({style_class: 'qb-history-row'});
+            const days = Math.floor((Date.now() - (q.deletedAt ?? q.updatedAt ?? 0)) / 86400000);
+            row.add_child(label(q.title, 'qb-history-title', {ellipsize: true, x_expand: true}));
+            row.add_child(label(`${days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`}${q.done ? ' · was done' : ''}`, 'qb-muted'));
+            row.add_child(textButton('Restore', 'qb-small qb-accent', () => this._store.restoreQuest(q.id)));
+            this._trashList.add_child(row);
         }
     }
 
     // ---- timers page -----------------------------------------------------
+    // Order: your timers first, then one-click presets, then "+ Custom timer" (the full form, folded away by default).
 
     _buildTimersPage() {
         const page = box({vertical: true, style_class: 'qb-page', x_expand: true, y_expand: true});
-        this._tKind = 'pomodoro';
-        this._tMin = null;
-        // everything scrolls together: the new-timer panel, presets, then the timers
         const body = box({vertical: true, style_class: 'qb-timer-list'});
-        this._newTimerBox = box({vertical: true, style_class: 'qb-new-timer-box'});
-        body.add_child(this._newTimerBox);
-        this._newLinkRow = box({vertical: true, style_class: 'qb-link-row'});
-        body.add_child(this._newLinkRow);
-        this._presetBox = box({vertical: true, style_class: 'qb-preset-box'});
-        body.add_child(this._presetBox);
         this._timersList = box({vertical: true, style_class: 'qb-timer-list'});
         body.add_child(this._timersList);
+        this._startBox = box({vertical: true, style_class: 'qb-preset-box'});
+        body.add_child(this._startBox);
+        this._newTimerBox = box({vertical: true, style_class: 'qb-new-timer-box'});
+        body.add_child(this._newTimerBox);
         page.add_child(scroll(body, {y_expand: true}));
         return page;
     }
 
     _kindMinutes(kind) {
+        if (this._tMinByKind[kind])
+            return this._tMinByKind[kind];
         if (kind === 'pomodoro')
             return this._settings.get_int('pomodoro-minutes');
         if (kind === 'break')
@@ -677,34 +939,90 @@ export class Dashboard {
         return this._store.data.countdownMin ?? 45;
     }
 
+    /** Minutes for the next timer only. The default lengths live in Settings (and in presets). */
     _setKindMinutes(m) {
-        m = Math.max(1, Math.min(600, Math.round(m)));
-        this._tMin = m;
-        if (this._tKind === 'pomodoro' && m <= 180)
-            this._settings.set_int('pomodoro-minutes', m);
-        else if (this._tKind === 'break' && m <= 60)
-            this._settings.set_int('break-minutes', m);
-        else if (this._tKind === 'custom')
-            this._store.data.countdownMin = m;
+        this._tMinByKind[this._tKind] = Math.max(1, Math.min(600, Math.round(m)));
         this.render(true);
     }
 
-    /** New timer: kind, minutes (−5 −1 +1 +5, quick picks, or typed), optional label, quest; presets; break after Focus. */
-    _renderNewTimer() {
+    _startNew(kind, min, text) {
+        this._store.startKind(kind, min, text, kind === 'break' ? null : this._newTimerQuest);
+        this._showNewTimer = false;
+    }
+
+    /** Presets (one click starts) and which quest new timers count toward. */
+    _renderStart() {
+        const pb = this._startBox;
+        clearChildren(pb);
+        const presets = this._store.timerPresets;
+        const head = box({style_class: 'qb-actions-row'});
+        head.add_child(label('Start a timer', 'qb-section-title', {x_expand: true}));
+        if (presets.length) {
+            head.add_child(textButton(this._editPresets ? 'Done' : 'Edit presets', 'qb-small', () => {
+                this._editPresets = !this._editPresets;
+                this.render(true);
+            }));
+        }
+        pb.add_child(head);
+
+        if (this._newTimerQuest && !this._store.getQuest(this._newTimerQuest))
+            this._newTimerQuest = null;
+        const lr = box({style_class: 'qb-link-line'});
+        lr.add_child(label('Counts toward', 'qb-muted'));
+        lr.add_child(this._linkButton(this._newTimerQuest, 'new'));
+        pb.add_child(lr);
+        if (this._pickerFor === 'new') {
+            pb.add_child(this.questPicker(this._newTimerQuest, id => {
+                this._newTimerQuest = id;
+                this._pickerFor = null;
+                this.render(true);
+            }));
+        }
+
+        const buttons = presets.map((p, i) => {
+            const txt = `${p.label}${p.kind === 'stopwatch' ? '' : ` · ${p.min}m`}`;
+            return this._editPresets
+                ? iconTextButton('window-close-symbolic', txt, 'qb-small qb-danger', () => this._store.setTimerPresets(presets.filter((_, j) => j !== i)))
+                : textButton(txt, 'qb-small', () => this._store.startKind(p.kind, p.min, p.label, p.kind === 'break' ? null : this._newTimerQuest));
+        });
+        const formOpen = this._showNewTimer || !presets.length;
+        if (!formOpen) {
+            buttons.push(iconTextButton('qb-plus', 'Custom timer', 'qb-small qb-accent', () => {
+                this._showNewTimer = true;
+                this.render(true);
+            }));
+        }
+        this._rows(pb, buttons);
+        if (!presets.length)
+            pb.add_child(label('Set up a timer below and click “Save as preset” to start it with one click next time.', 'qb-muted', {wrap: true}));
+        return formOpen;
+    }
+
+    /** Custom timer: kind, minutes (−5 −1 +1 +5, quick picks, or typed), optional label; break after Focus. */
+    _renderNewTimer(open) {
         const KINDS = [['pomodoro', 'Focus'], ['break', 'Break'], ['custom', 'Countdown'], ['stopwatch', 'Stopwatch']];
         const nb = this._newTimerBox;
         clearChildren(nb);
-        const min = this._tMin ?? this._kindMinutes(this._tKind);
+        nb.visible = open;
+        if (!open)
+            return;
+        const min = this._kindMinutes(this._tKind);
         const kinds = box({style_class: 'qb-actions-row'});
         for (const [k, name] of KINDS) {
-            const b = textButton(name, 'qb-small', () => {
+            const b = textButton(name, 'qb-small qb-seg', () => {
                 this._tKind = k;
-                this._tMin = null;
                 this.render(true);
             });
             if (k === this._tKind)
                 b.add_style_pseudo_class('checked');
             kinds.add_child(b);
+        }
+        kinds.add_child(new St.Widget({x_expand: true}));
+        if (this._store.timerPresets.length) {
+            kinds.add_child(iconButton('window-close-symbolic', 'qb-flat qb-tiny', () => {
+                this._showNewTimer = false;
+                this.render(true);
+            }, 'Close'));
         }
         nb.add_child(kinds);
         if (this._tKind !== 'stopwatch') {
@@ -734,10 +1052,7 @@ export class Dashboard {
         }
         const kindName = KINDS.find(k => k[0] === this._tKind)[1];
         const lbl = entry(this._tKind === 'break' ? 'Break' : 'Label (optional, else the quest\'s name)', 'qb-rename', () => start(), {x_expand: true});
-        const start = () => {
-            this._store.startKind(this._tKind, min, lbl.get_text(), this._tKind === 'break' ? null : this._newTimerQuest);
-            lbl.set_text('');
-        };
+        const start = () => this._startNew(this._tKind, min, lbl.get_text());
         nb.add_child(lbl);
         const act = box({style_class: 'qb-actions-row'});
         act.add_child(textButton(`Start ${kindName.toLowerCase()}${this._tKind === 'stopwatch' ? '' : ` · ${min} min`}`, 'qb-small qb-accent', start));
@@ -756,32 +1071,6 @@ export class Dashboard {
             this.render(true);
         }));
         nb.add_child(ab);
-
-        // presets: one click starts (with the quest chosen below)
-        const pb = this._presetBox;
-        clearChildren(pb);
-        const head = box({style_class: 'qb-actions-row'});
-        head.add_child(label('Presets', 'qb-section-title', {x_expand: true}));
-        const presets = this._store.timerPresets;
-        if (presets.length)
-            head.add_child(textButton(this._editPresets ? 'Done' : 'Edit', 'qb-small', () => {
-                this._editPresets = !this._editPresets;
-                this.render(true);
-            }));
-        pb.add_child(head);
-        if (!presets.length)
-            pb.add_child(label('Set up a timer above and click “Save as preset”.', 'qb-muted', {wrap: true}));
-        let row = null;
-        presets.forEach((p, i) => {
-            if (i % 3 === 0) {
-                row = box({style_class: 'qb-actions-row'});
-                pb.add_child(row);
-            }
-            const txt = `${p.label}${p.kind === 'stopwatch' ? '' : ` · ${p.min}m`}`;
-            row.add_child(this._editPresets
-                ? textButton(`✕ ${txt}`, 'qb-small qb-danger', () => this._store.setTimerPresets(presets.filter((_, j) => j !== i)))
-                : textButton(txt, 'qb-small', () => this._store.startKind(p.kind, p.min, p.label, p.kind === 'break' ? null : this._newTimerQuest)));
-        });
     }
 
     questPicker(currentId, onPick) {
@@ -833,31 +1122,15 @@ export class Dashboard {
     }
 
     _renderTimersPage(now) {
-        this._renderNewTimer();
-        clearChildren(this._newLinkRow);
-        if (this._newTimerQuest && !this._store.getQuest(this._newTimerQuest))
-            this._newTimerQuest = null;
-        const lr = box({style_class: 'qb-link-line'});
-        lr.add_child(label('New timers count toward', 'qb-muted'));
-        lr.add_child(this._linkButton(this._newTimerQuest, 'new'));
-        this._newLinkRow.add_child(lr);
-        if (this._pickerFor === 'new') {
-            this._newLinkRow.add_child(this.questPicker(this._newTimerQuest, id => {
-                this._newTimerQuest = id;
-                this._pickerFor = null;
-                this.render(true);
-            }));
-        }
-
         clearChildren(this._timersList);
         this._timerWidgets.clear();
         const timers = this._store.timers;
-        if (!timers.length) {
-            this._timersList.add_child(label('No timers yet. Start one above, or press play on any quest.', 'qb-empty', {wrap: true}));
-            return;
-        }
+        if (!timers.length)
+            this._timersList.add_child(label('No timer yet. Start one below, or press play on any quest.', 'qb-empty', {wrap: true}));
         for (const t of timers)
             this._timersList.add_child(this._timerCard(t, now));
+        const formOpen = this._renderStart();
+        this._renderNewTimer(formOpen);
     }
 
     _timerCard(t, now) {
@@ -873,9 +1146,10 @@ export class Dashboard {
         top.add_child(time);
 
         const meta = box({vertical: true, x_expand: true, y_align: Clutter.ActorAlign.CENTER});
-        const kindText = {pomodoro: 'Pomodoro', break: 'Break', stopwatch: 'Stopwatch', custom: 'Countdown'}[t.kind] ?? 'Timer';
+        const kindText = {pomodoro: 'Focus', break: 'Break', stopwatch: 'Stopwatch', custom: 'Countdown'}[t.kind] ?? 'Timer';
         meta.add_child(label(t.finished ? `${kindText} · done` : running ? kindText : `${kindText} · paused`, 'qb-timer-kind'));
-        meta.add_child(entry('Name', 'qb-rename qb-timer-name', txt => this._store.renameTimer(t.id, txt), {text: t.label ?? '', x_expand: true}));
+        meta.add_child(entry('Name', 'qb-rename qb-timer-name', txt => this._store.renameTimer(t.id, txt),
+            {text: t.label ?? '', x_expand: true, commit: true}));
         if (t.kind !== 'break')
             meta.add_child(this._linkButton(t.questId, t.id));
         top.add_child(meta);
@@ -952,21 +1226,31 @@ export class Dashboard {
             this.calendar?.markStale();
             return;
         }
+        // save typed-but-unconfirmed text before its field is rebuilt (saving re-renders by itself; that nested render is fine)
+        if (!this._flushing) {
+            this._flushing = true;
+            try {
+                flushEdits();
+            } finally {
+                this._flushing = false;
+            }
+        }
         this._stale = false;
         this._renderedDay = dateKey();
         const now = Date.now();
         this._questTimeLabels.clear();
         this._stepTimeLabels.clear();
         this._renderHeader(now);
+        this._renderDeadlines(now);
         this._renderSync();
         switch (this._page) {
         case 'matrix': this._renderMatrix(now); break;
         case 'habits': this.habitsPage.render(); break;
-        case 'quests': this._renderQuestsPage(now); break;
         case 'timers': this._renderTimersPage(now); break;
         case 'shop': this.shopPage.render(); break;
         case 'detail': this._renderDetail(now); break;
         case 'progress': this.progressPage.render(now); break;
+        case 'trash': this._renderTrashPage(); break;
         }
         this.calendar.render();
     }
@@ -990,6 +1274,10 @@ export class Dashboard {
         this._unsub?.();
         this._unsubSync?.();
         this._unsub = this._unsubSync = null;
+        if (this._undoId) {
+            GLib.source_remove(this._undoId);
+            this._undoId = 0;
+        }
     }
 
     destroy() {
