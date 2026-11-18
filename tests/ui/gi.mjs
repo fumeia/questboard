@@ -332,7 +332,7 @@ const Gio = {
     FileIcon: {new: f => ({file: f})},
     File: {new_for_path: p => ({path: p, get_uri: () => `file://${p}`})},
     ThemedIcon: {new: n => ({name: n})},
-    AppInfo: {launch_default_for_uri: uri => G.opened.push(uri)},
+    AppInfo: {launch_default_for_uri: (uri, ctx) => { G.opened.push(uri); (G.launchCtx ??= []).push(ctx); }},
     Settings: class {
         constructor() {
             this.v = {};

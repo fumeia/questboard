@@ -5,7 +5,6 @@
 // the view stale, and the next open renders once.
 
 import Clutter from 'gi://Clutter';
-import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import St from 'gi://St';
 
@@ -14,7 +13,7 @@ import {HabitStrip, HabitsPage, LevelPage, ProgressPage, ShopPage} from './pages
 import {QUADRANTS, STEP_XP, dueInDays, groupBonus, levelInfo, parseDueDate, questXp, rankName} from './store.js';
 import {
     addDays, box, button, checkButton, clearChildren, dateKey, entry, flushEdits, fmtDate, fmtMinutes, fmtSpent, fmtTimer, gicon,
-    icon, iconButton, iconLabel, iconTextButton, label, levelRing, scroll, textButton,
+    icon, iconButton, iconLabel, iconTextButton, label, levelRing, openUri, scroll, textButton,
 } from './util.js';
 
 const TABS = [
@@ -482,8 +481,8 @@ export class Dashboard {
     openRpg(q) {
         if (!q?.link)
             return;
-        Gio.AppInfo.launch_default_for_uri(q.link, null);
         this.ctx.closeMenu();
+        openUri(q.link);
     }
 
     /**
@@ -725,8 +724,8 @@ export class Dashboard {
                 if (q.link) {
                     const text = q.source === 'notion' ? 'Open in Notion' : 'Open link';
                     fr.add_child(iconTextButton('qb-book', text, 'qb-small', () => {
-                        Gio.AppInfo.launch_default_for_uri(q.link, null);
                         this.ctx.closeMenu();
+                        openUri(q.link);
                     }));
                 }
             }

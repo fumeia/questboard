@@ -252,6 +252,25 @@ export function levelRing(size = 30, labelClass = 'qb-ring-label') {
     return w;
 }
 
+/**
+ * Open a link in the default browser the way the shell itself starts apps. Without the shell's launch context the
+ * browser got no display / activation token: Brave started but showed no window, queued every click, and opened them all
+ * the next time Brave was started by hand. Runs on idle, after the popup has closed and let go of the pointer.
+ */
+export function openUri(uri, onError = null) {
+    if (!uri)
+        return;
+    GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+        try {
+            const ctx = globalThis.global?.create_app_launch_context?.(globalThis.global.get_current_time?.() ?? 0, -1) ?? null;
+            Gio.AppInfo.launch_default_for_uri(uri, ctx);
+        } catch (e) {
+            (onError ?? _errorHandler)(e, 'open-link');
+        }
+        return GLib.SOURCE_REMOVE;
+    });
+}
+
 /** Check box with a 24 px click area around the 16 px (or 12 px) box. */
 export function checkButton(checked, onClick, {small = false, accessible_name = '', where = 'check'} = {}) {
     let cls = 'qb-check';

@@ -123,7 +123,12 @@ check(rows.every(r => byClass('qb-quest-meta', r).every(m => m.children.length <
 const late = rows.find(r => text(r).includes('Bibliotheksbuch'));
 check(late && text(late).includes('1d late'), 'overdue chip on the second line');
 G.opened.length = 0;
+// the shell's launch context (display + activation token for the browser); without it Brave queued the clicks
+globalThis.global = {create_app_launch_context: (t, ws) => ({shellLaunchContext: true, t, ws}), get_current_time: () => 42};
 click(btn('Open Physics RPG', rpgRow));
+check(G.opened.length === 0, 'the link opens after the popup has closed (on idle), not while it still holds the pointer');
+G.runTimers(0);
+check(G.launchCtx?.at(-1)?.shellLaunchContext === true, 'the link is opened with the shell\'s launch context');
 check(G.opened[0] === 'https://rpg.example/' && !store.isQuestRunning('rpg.qm.respawn'), 'game quests: the button opens the game and starts no timer (no double counting)');
 check(!menuOpen, '…and closes the popup');
 menuOpen = true;
