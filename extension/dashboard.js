@@ -207,12 +207,11 @@ export class Dashboard {
 
         this._coins = iconLabel('qb-coin', '', 'qb-stat qb-coins');
         this._streak = iconLabel('qb-flame', '', 'qb-stat qb-streak');
-        this._doneToday = iconLabel('qb-check', '', 'qb-stat');
         this._focus = iconLabel('qb-stopwatch', '', 'qb-stat');
         const coinBtn = button({style_class: 'qb-stat-btn', child: this._coins, y_align: Clutter.ActorAlign.CENTER,
             accessible_name: 'Coins: open the shop'}, () => this._setPage('shop'), 'coins');
         h.add_child(coinBtn);
-        for (const s of [this._streak, this._doneToday, this._focus])
+        for (const s of [this._streak, this._focus])
             h.add_child(s);
 
         h.add_child(new St.Widget({x_expand: true}));
@@ -249,16 +248,9 @@ export class Dashboard {
         const streak = this._store.streak();
         this._streak.labelActor.text = `${streak}d`;
         this._streak.visible = streak > 0;
-        // words next to the numbers: a bare tick or stopwatch with a number did not say what it counts
-        this._doneToday.labelActor.text = `${this._store.completedOn()} done`;
-        const focus = fmtSpent(this._store.focusOn(undefined, now));
-        // focus today against the daily target ("1h 34m / 3h"); a tick once it is reached
-        const target = this._store.dailyTargetMin;
+        // focus today, nothing else (the target and the rest are on the Level page); green once the daily target is reached
+        this._focus.labelActor.text = fmtSpent(this._store.focusOn(undefined, now)) || '0m';
         const hit = this._store.dailyHit();
-        this._focus.labelActor.text = target > 0
-            ? (hit ? `${focus || '0m'} ✓` : `${focus || '0m'} / ${fmtSpent(target * 60000)}`)
-            : (focus ? `${focus} focus` : '');
-        this._focus.visible = target > 0 || !!focus;
         if (hit)
             this._focus.add_style_class_name('qb-target-hit');
         else

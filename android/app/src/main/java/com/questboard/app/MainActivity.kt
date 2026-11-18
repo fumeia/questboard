@@ -225,7 +225,7 @@ class MainActivity : ComponentActivity() {
                 HSpace(8.dp)
                 Column(Modifier.width(96.dp)) {
                     Bar(info.frac, C.gold)
-                    Muted("${rankName(info.level)} · ${info.into}/${info.span}", size = 10)
+                    Text(rankName(info.level), color = C.muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             HSpace(10.dp)
@@ -238,14 +238,11 @@ class MainActivity : ComponentActivity() {
                 HSpace(10.dp); QbIcon("flame", C.orange, 15.dp); HSpace(2.dp)
                 Text("${streak}d", color = C.orange, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
-            HSpace(10.dp); QbIcon("check", C.muted, 14.dp); HSpace(2.dp); Muted("${s.completedOn()} done", size = 13)
-            // focus today against the daily target ("1h 34m / 3h"); green with a tick once reached
+            // focus today, nothing else (target and details are on the Level screen); green once the daily target is reached
             val focus = fmtSpent(s.focusOn(now = now)).ifEmpty { "0m" }
-            val target = app.settings.dailyTargetMin
             val hit = remember(v) { s.dailyHit() }
-            HSpace(8.dp); QbIcon("stopwatch", if (hit) C.green else C.muted, 14.dp); HSpace(2.dp)
-            if (hit) Text("$focus ✓", color = C.green, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-            else Muted(if (target > 0) "$focus / ${fmtSpent(target * 60_000L)}" else focus, size = 13)
+            HSpace(10.dp); QbIcon("stopwatch", if (hit) C.green else C.muted, 14.dp); HSpace(3.dp)
+            Text(focus, color = if (hit) C.green else C.text, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, softWrap = false)
             HSpace(6.dp)
           }
             val t = s.runningTimers().firstOrNull()

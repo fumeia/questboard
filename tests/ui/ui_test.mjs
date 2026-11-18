@@ -110,7 +110,7 @@ const shot = (name, theme = 'dark') => {
 // ---- deadline row
 const chips = byClass('qb-deadline');
 check(chips.length === 3 && text(chips[0]).startsWith('5.5 in QM 1') && text(chips[0]).includes('57d'), `deadline row: three exams, nearest first (${chips.map(text).join(' | ')})`);
-check(text(dash.actor).includes('done') && text(dash.actor).includes('focus') === false, 'header says "N done" (no focus yet today)');
+check(!text(dash.actor.get_children()[0]).includes('done') && dash._focus.labelActor.text === '0m', 'header: no done count, focus today only ("0m")');
 
 // ---- matrix: two-line rows, compact chips, RPG respawn quest
 shot('1-matrix');
@@ -276,7 +276,7 @@ store._changed();
 const r4 = store.checkRewards();
 check(r4.levelUp && r4.levelUp.to >= 3, `a level-up is reported (${JSON.stringify(r4.levelUp)})`);
 dash.showPage('matrix');
-check(/✓$/.test(dash._focus.labelActor.text), `header focus shows the target reached (${dash._focus.labelActor.text})`);
+check(dash._focus.has_style_class_name('qb-target-hit') && !dash._focus.labelActor.text.includes('/'), `header focus turns green at the target, no "/ 3h" (${dash._focus.labelActor.text})`);
 check(/^Harmonic oscillator|^Free electron|^Hydrogen atom/.test(dash._xpLabel.text), `rank under the XP bar (${dash._xpLabel.text})`);
 click(btn('Level, ranks and achievements'));
 const lp = dash._pages.level;
