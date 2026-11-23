@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="launcher_bg">#1F1F25</color>
-    <!-- home-screen widget: plain text on the wallpaper (light wallpaper by day, dark at night) -->
-    <color name="widget_text">#2E2E33</color>
-    <color name="widget_muted">#992E2E33</color>
-    <color name="widget_gold">#B07A00</color>
-    <color name="widget_hit">#1A7F37</color>
-    <color name="widget_violet">#8A3FA0</color>
+    <!-- home-screen widget: light text on its own dark card (res/drawable/widget_bg.xml), whatever the wallpaper -->
+    <color name="widget_text">#EEEEEC</color>
+    <color name="widget_muted">#B3EEEEEC</color>
+    <color name="widget_gold">#F6D32D</color>
+    <color name="widget_hit">#57E389</color>
+    <color name="widget_violet">#DC8ADD</color>
 </resources>

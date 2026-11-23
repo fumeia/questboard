@@ -6,7 +6,6 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -29,7 +28,7 @@ import com.questboard.app.ui.rowTitle
 import com.questboard.app.ui.rpgReviews
 
 /**
- * Home-screen widget in the style of a minimal launcher: no box, centred text.
+ * Home-screen widget: a dark card (the app's colours) with centred text, readable on any wallpaper and in light or dark mode.
  *   [level ring] 1h 34m focus      (green ✓ once the daily target is reached)
  *   Focus · 18:42                   (only while a timer runs; counts by itself)
  *   Next: QM Übungsblatt 7 · tomorrow
@@ -63,7 +62,7 @@ class TodayWidget : AppWidgetProvider() {
         private fun render(app: QuestboardApp): RemoteViews {
             val s = app.store
             val v = RemoteViews(app.packageName, R.layout.widget_today)
-            val dark = (app.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+            val dark = true  // the card is always dark (without it, the light text vanished on a light launcher in dark mode)
             val info = levelInfo(s.xp)
             v.setImageViewBitmap(R.id.w_ring, ring(app, info.level, info.frac, dark))
 
