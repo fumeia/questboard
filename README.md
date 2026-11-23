@@ -99,6 +99,25 @@ sudo bash /opt/physics-rpg/deploy/questboard-setup.sh
 It finds `~/questboard-server/.env` by itself (token + port), tests the connection and sends every 3 minutes. Topic names
 are in `/etc/physics-rpg/questboard.env`. Nothing in this server changes; the game talks to `/api/sync` like a device.
 
+### 1d. Jump training app (optional)
+
+Jump (github.com/fumeia/jump) talks to `/api/sync` like a device; nothing in this server changes. In Jump:
+Settings → Questboard → server URL + token → **Connect and load goals** → pick the goal training should count for
+(create it here first, e.g. "Volleyball: approach touch 315").
+
+| Jump | Questboard |
+|---|---|
+| a day with training | quest `jump.<date>` (Schedule, topic "Training", linked to the goal), done, XP 10–80 |
+| its XP | ledger `quest.jump.<date>` (same id a client would write → never paid twice) |
+| training time | sessions `jumptime.<id>` (kind `jump`), counted for the quest and the goal |
+| any session that day | habit "Training (Jump)" check-in → keeps the streak |
+| protein target reached | habit "Protein target" check-in (optional) |
+| today, not trained yet | open quest `jump.<today>` |
+| a past day without training | that quest gets `inMatrix: false` (out of the matrix, no debt) |
+
+Jump pushes the last 14 days every few hours and after each session; the records are deterministic, so
+re-sending changes nothing. Your own edits in Questboard win (they have a later `updatedAt`).
+
 ---
 
 ## 2. Desktop (GNOME, Ubuntu)
