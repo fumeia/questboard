@@ -11,6 +11,9 @@ Single-user, zero dependencies (Python stdlib + SQLite).
   GET  /api/releases/<platform>/latest {code, name, sha256, size, notes, url}
   GET  /api/releases/<platform>/download
   POST /api/releases/<platform>?code=&name=&notes=   (raw file body) publish an update
+  POST /api/backups/<app>              (raw body) store a backup of an app's own data (app: jump); newest 7 kept
+  GET  /api/backups/<app>/latest       {created, size, sha256}
+  GET  /api/backups/<app>/download     the newest backup
   GET  /api/health
   GET  /                               tiny web console (live logs + devices)
 
@@ -34,6 +37,8 @@ TOKEN = os.environ.get("QB_TOKEN", "")
 PORT = int(os.environ.get("QB_PORT", "8787"))
 MAX_LOG_ROWS = int(os.environ.get("QB_MAX_LOG_ROWS", "100000"))
 KEEP_RELEASES = int(os.environ.get("QB_KEEP_RELEASES", "3"))  # newest builds kept per platform; older files are deleted
+KEEP_BACKUPS = int(os.environ.get("QB_KEEP_BACKUPS", "7"))     # newest app backups kept per app
+BACKUP_APPS = {"jump"}  # apps that keep their whole local data here (Jump: its event log, gzip JSON)
 
 COLLECTIONS = {"quests", "habits", "checkins", "rewards", "ledger", "sessions", "goals", "prefs"}
 PLATFORMS = {"extension", "android", "jump"}  # jump = the Jump training app (github.com/fumeia/jump)
@@ -63,6 +68,7 @@ def db():
     global _db
     if _db is None:
         os.makedirs(os.path.join(DATA_DIR, "releases"), exist_ok=True)
+        os.makedirs(os.path.join(DATA_DIR, "backups"), exist_ok=True)
         _db = sqlite3.connect(os.path.join(DATA_DIR, "questboard.db"), check_same_thread=False)
         _db.execute("PRAGMA journal_mode=WAL")
         _db.executescript(
@@ -259,6 +265,41 @@ def do_state(q):
     return out
 
 
+def backup_files(app):
+    """Newest first: [(created_ms, path)]. Files are named <app>-<created_ms>.bin."""
+    d = os.path.join(DATA_DIR, "backups")
+    out = []
+    for f in os.listdir(d) if os.path.isdir(d) else []:
+        m = re.match(rf"^{re.escape(app)}-(\d+)\.bin$", f)
+        if m:
+            out.append((int(m.group(1)), os.path.join(d, f)))
+    return sorted(out, reverse=True)
+
+
+def latest_backup(app):
+    files = backup_files(app)
+    if not files:
+        return None
+    created, path = files[0]
+    data = open(path, "rb").read()
+    return {"app": app, "created": created, "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+            "url": f"/api/backups/{app}/download"}
+
+
+def store_backup(app, data):
+    created = now_ms()
+    path = os.path.join(DATA_DIR, "backups", f"{app}-{created}.bin")
+    with open(path + ".part", "wb") as f:
+        f.write(data)
+    os.replace(path + ".part", path)
+    for _, old in backup_files(app)[KEEP_BACKUPS:]:
+        try:
+            os.remove(old)
+        except OSError:
+            pass
+    return latest_backup(app)
+
+
 def prune_releases(platform):
     """Keep the newest KEEP_RELEASES builds of a platform; delete the APK files of the rest.
     Called with _lock held and the database open. Phones only ever install the newest build."""
@@ -403,6 +444,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, do_devices())
             if p == "/api/state":
                 return self._send(200, do_state(q))
+            m = re.match(r"^/api/backups/(\w+)/(latest|download)$", p)
+            if m and m.group(1) in BACKUP_APPS:
+                b = latest_backup(m.group(1))
+                if not b:
+                    return self._send(404, {"error": "no backup"})
+                if m.group(2) == "latest":
+                    return self._send(200, b)
+                with open(backup_files(m.group(1))[0][1], "rb") as f:
+                    return self._send(200, ctype="application/octet-stream", raw=f.read(), filename=f"{m.group(1)}-backup.bin")
             m = re.match(r"^/api/releases/(\w+)/(latest|download)$", p)
             if m and m.group(1) in PLATFORMS:
                 rel = latest_release(m.group(1))
@@ -429,6 +479,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, do_sync(self._json(), self._client_ip()))
             if p == "/api/logs":
                 return self._send(200, do_logs_post(self._json(), self._client_ip()))
+            m = re.match(r"^/api/backups/(\w+)$", p)
+            if m and m.group(1) in BACKUP_APPS:
+                data = self._body()
+                if not data:
+                    return self._send(400, {"error": "empty backup"})
+                with _lock:
+                    return self._send(200, store_backup(m.group(1), data))
             m = re.match(r"^/api/releases/(\w+)$", p)
             if m and m.group(1) in PLATFORMS:
                 plat = m.group(1)
