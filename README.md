@@ -115,6 +115,9 @@ Settings → Questboard → server URL + token → **Connect and load goals** �
 | today, not trained yet | open quest `jump.<today>` |
 | a past day without training | that quest gets `inMatrix: false` (out of the matrix, no debt) |
 
+**Installing Jump:** publish its APK to the server (`tools/qb publish jump --file app-release.apk --code 1 --name 0.1.0`),
+then on the phone open `http://<server>:8787/`, paste the token, **Download Jump app**.
+
 Jump pushes the last 14 days every few hours and after each session; the records are deterministic, so
 re-sending changes nothing. Your own edits in Questboard win (they have a later `updatedAt`).
 
@@ -168,8 +171,9 @@ the second it takes to save an event.
 
 **First install** (one time; later updates install from inside the app):
 1. Build/publish the APK (from the development machine): `tools/qb publish android -m "first build"`.
-2. On the phone open `http://<server>:8787/api/releases/android/download?token=<QB_TOKEN>` in the browser,
-   download, and allow "Install unknown apps" for the browser when asked.
+2. On the phone open `http://<server>:8787/` in the browser, paste the token, tap **apply**, then
+   **Download Questboard app** and open the file; allow "Install unknown apps" for the browser when asked.
+   (The token travels only in a request header, never in a URL, so a plain download link can't work.)
    (Alternative: `adb install android/app/build/outputs/apk/release/app-release.apk`.)
 3. Open Questboard → allow **Calendar** and **Notifications**.
 4. Tap the bug icon (top right) → Server URL + Token → **Save & test**.

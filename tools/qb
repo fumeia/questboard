@@ -12,6 +12,7 @@ Config: run `qb login` once — saves QB_URL / QB_TOKEN to ~/.config/questboard/
   qb pack                           build dist/questboard-extension-<v>.zip
   qb publish extension [-m notes] [--bump]
   qb publish android   [-m notes] [--bump]   (gradle assembleRelease, upload APK)
+  qb publish jump --file app-release.apk --code N --name 0.1.0 [-m notes]   (Jump training app; download in the web console)
   qb bump extension|android         increment version code
   qb install                        install the extension here AND publish a newer phone APK to the server
 """
@@ -217,7 +218,12 @@ def gradle_env():
 def cmd_publish(a):
     if a.bump:
         cmd_bump(argparse.Namespace(target=a.target))
-    if a.target == "extension":
+    if a.target == "jump":
+        # Jump lives in its own repo; publish an APK built there (./gradlew :app:assembleRelease).
+        if not a.file or not a.code:
+            sys.exit("jump: pass --file <apk> and --code <versionCode> (and --name <versionName>)")
+        path, code, name = a.file, a.code, a.name or str(a.code)
+    elif a.target == "extension":
         path, code = cmd_pack()
         name = str(code)
     else:
@@ -315,7 +321,10 @@ def main():
     b.add_argument("target", choices=["extension", "android"])
     b.set_defaults(fn=cmd_bump)
     pu = sub.add_parser("publish")
-    pu.add_argument("target", choices=["extension", "android"])
+    pu.add_argument("target", choices=["extension", "android", "jump"])
+    pu.add_argument("--file", help="jump: the APK to upload")
+    pu.add_argument("--code", type=int, help="jump: versionCode")
+    pu.add_argument("--name", help="jump: versionName")
     pu.add_argument("-m", help="release notes")
     pu.add_argument("--bump", action="store_true", help="increment the version first")
     pu.add_argument("--no-build", action="store_true", help="android: upload the already-built APK")

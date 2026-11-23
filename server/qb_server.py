@@ -36,7 +36,8 @@ MAX_LOG_ROWS = int(os.environ.get("QB_MAX_LOG_ROWS", "100000"))
 KEEP_RELEASES = int(os.environ.get("QB_KEEP_RELEASES", "3"))  # newest builds kept per platform; older files are deleted
 
 COLLECTIONS = {"quests", "habits", "checkins", "rewards", "ledger", "sessions", "goals", "prefs"}
-PLATFORMS = {"extension", "android"}
+PLATFORMS = {"extension", "android", "jump"}  # jump = the Jump training app (github.com/fumeia/jump)
+APK_PLATFORMS = {"android", "jump"}
 ID_RE = re.compile(r"^[A-Za-z0-9_\-:.]{1,80}$")
 MAX_BODY = 300 * 1024 * 1024       # release uploads (authenticated only)
 MAX_JSON_BODY = 5 * 1024 * 1024    # sync / logs
@@ -293,19 +294,29 @@ CONSOLE_HTML = r"""<!doctype html><html><head><meta charset="utf-8"><meta name="
 header{display:flex;gap:8px;align-items:center;padding:10px 16px;background:#1f1f25;position:sticky;top:0;flex-wrap:wrap}
 input,select,button{background:#2a2a32;color:#eee;border:1px solid #3a3a44;border-radius:6px;padding:5px 8px;font:inherit}
 #devs{padding:8px 16px;color:#9a9a9a}#logs{padding:0 16px 40px}.l{white-space:pre-wrap;border-bottom:1px solid #222;padding:2px 0;overflow-wrap:anywhere}
+#dl{padding:4px 16px 8px;display:flex;gap:8px;flex-wrap:wrap}#dl button{padding:8px 12px}
 .error{color:#ff7b72}.warn{color:#e3b341}.debug{color:#777}.t{color:#6e7681}.d{color:#79c0ff}
 </style></head><body><header><b>Questboard</b>
 <input id="tok" type="password" placeholder="token" size="14">
 <select id="lvl"><option value="">all</option><option>info</option><option>warn</option><option>error</option></select>
 <input id="dev" placeholder="device prefix" size="12"><input id="q" placeholder="search" size="14">
-<button onclick="reset()">apply</button></header><div id="devs"></div><div id="logs"></div>
+<button onclick="reset()">apply</button></header><div id="devs"></div><div id="dl"></div><div id="logs"></div>
 <script>
 const $=id=>document.getElementById(id);let after=0;
 try{$('tok').value=localStorage.qbTok||''}catch(e){}
 function h(){return{Authorization:'Bearer '+$('tok').value}}
 function reset(){try{localStorage.qbTok=$('tok').value}catch(e){};after=0;$('logs').innerHTML='';poll();devs()}
 async function devs(){const r=await fetch('/api/devices',{headers:h()});if(!r.ok)return;const j=await r.json();
-$('devs').textContent=j.devices.map(d=>`${d.name||d.id} [${d.platform} ${d.version}] seen ${Math.round((j.serverTime-d.lastSeen)/1000)}s ago`).join('  ·  ')}
+$('devs').textContent=j.devices.map(d=>`${d.name||d.id} [${d.platform} ${d.version}] seen ${Math.round((j.serverTime-d.lastSeen)/1000)}s ago`).join('  ·  ');
+// Downloads: the token goes in a header (never in the URL), so fetch the file and hand it to the browser as a blob.
+const names={android:'Questboard app',jump:'Jump app',extension:'GNOME extension'};$('dl').innerHTML='';
+for(const [p,r] of Object.entries(j.releases||{})){if(!r)continue;const b=document.createElement('button');
+b.textContent=`Download ${names[p]||p} ${r.name}`;b.onclick=()=>dl(p,b);$('dl').append(b)}}
+async function dl(p,b){const t=b.textContent;b.textContent='downloading…';
+const r=await fetch(`/api/releases/${p}/download`,{headers:h()});if(!r.ok){b.textContent='failed ('+r.status+')';return}
+const cd=r.headers.get('Content-Disposition')||'';const m=cd.match(/filename="([^"]+)"/);
+const a=document.createElement('a');a.href=URL.createObjectURL(await r.blob());a.download=m?m[1]:p;document.body.append(a);a.click();
+setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},60000);b.textContent=t}
 async function poll(){const p=new URLSearchParams({after,limit:500});if($('lvl').value)p.set('level',$('lvl').value);
 if($('dev').value)p.set('device',$('dev').value);if($('q').value)p.set('q',$('q').value);
 const r=await fetch('/api/logs?'+p,{headers:h()});if(!r.ok)return;const j=await r.json();
@@ -341,10 +352,12 @@ class Handler(BaseHTTPRequestHandler):
             time.sleep(0.5)  # brake on guessing
         return ok
 
-    def _send(self, code, obj=None, ctype="application/json", raw=None):
+    def _send(self, code, obj=None, ctype="application/json", raw=None, filename=None):
         body = raw if raw is not None else json.dumps(obj).encode()
         self.send_response(code)
         self.send_header("Content-Type", ctype)
+        if filename:
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         for k, v in SECURITY_HEADERS.items():
@@ -400,7 +413,7 @@ class Handler(BaseHTTPRequestHandler):
                 with open(os.path.join(DATA_DIR, "releases", rel["file"]), "rb") as f:
                     data = f.read()
                 ctype = "application/vnd.android.package-archive" if rel["file"].endswith(".apk") else "application/zip"
-                return self._send(200, ctype=ctype, raw=data)
+                return self._send(200, ctype=ctype, raw=data, filename=rel["file"])
             return self._send(404, {"error": "not found"})
         except Exception as e:  # noqa: BLE001
             return self._send(500, {"error": str(e)})
@@ -425,7 +438,7 @@ class Handler(BaseHTTPRequestHandler):
                 data = self._body()
                 if code <= 0 or not data:
                     return self._send(400, {"error": "need ?code=<int> and a file body"})
-                ext = "apk" if plat == "android" else "zip"
+                ext = "apk" if plat in APK_PLATFORMS else "zip"
                 fname = f"{plat}-{code}.{ext}"
                 tmp = os.path.join(DATA_DIR, "releases", fname + ".part")
                 with open(tmp, "wb") as f:
