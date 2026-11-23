@@ -42,6 +42,8 @@ class QuestboardApp : Application() {
             alarms.refresh(this)
             sync.schedule(this)
         }
+        store.onAnyChange = { com.questboard.app.sys.TodayWidget.refresh(this) }
+        settings.onDailyTargetChange = { com.questboard.app.sys.TodayWidget.refresh(this) }
         sync.schedulePeriodic(this)
         alarms.refresh(this)
         log.info("lifecycle", "app start v${BuildConfig.VERSION_NAME} in ${System.currentTimeMillis() - t0} ms")

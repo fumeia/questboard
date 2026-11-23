@@ -44,6 +44,13 @@
             </intent-filter>
         </receiver>
         <receiver android:name=".net.InstallReceiver" android:exported="false" />
+        <!-- Home-screen widget: level ring, today's focus, the next quest, reviews due (sys/TodayWidget.kt). -->
+        <receiver android:name=".sys.TodayWidget" android:exported="false" android:label="Questboard · today">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_today_info" />
+        </receiver>
         <!-- Keeps the running Pomodoro / timer visible in the notification shade while it runs. -->
         <service
             android:name=".sys.TimerService"

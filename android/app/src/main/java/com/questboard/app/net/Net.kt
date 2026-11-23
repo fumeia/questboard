@@ -44,7 +44,9 @@ class Settings(context: Context) {
     var breakMin: Int get() = p.getInt("break", 5); set(v) = p.edit().putInt("break", v).apply()
     var countdownMin: Int get() = p.getInt("countdown", 45); set(v) = p.edit().putInt("countdown", v).apply()
     /** Daily focus target in minutes (0 = off); reaching it pays DAILY_XP once a day (Store.checkRewards). */
-    var dailyTargetMin: Int get() = p.getInt("dailyTarget", com.questboard.app.data.DEFAULT_DAILY_TARGET_MIN); set(v) = p.edit().putInt("dailyTarget", v.coerceIn(0, 720)).apply()
+    var dailyTargetMin: Int get() = p.getInt("dailyTarget", com.questboard.app.data.DEFAULT_DAILY_TARGET_MIN)
+        set(v) { p.edit().putInt("dailyTarget", v.coerceIn(0, 720)).apply(); onDailyTargetChange?.invoke() }
+    var onDailyTargetChange: (() -> Unit)? = null
     /** Achievements already announced on this phone, and the last level seen (for the level-up notification). */
     var achSeen: String? get() = p.getString("achSeen", null); set(v) = p.edit().putString("achSeen", v).apply()
     var lastLevel: Int get() = p.getInt("lastLevel", 0); set(v) = p.edit().putInt("lastLevel", v).apply()

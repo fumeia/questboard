@@ -161,6 +161,10 @@ the second it takes to save an event.
 3. Open Questboard → allow **Calendar** and **Notifications**.
 4. Tap the bug icon (top right) → Server URL + Token → **Save & test**.
 
+**Home-screen widget:** long-press the home screen → Widgets → Questboard · today. No box, centred text: your level ring
+and today's focus time (green ✓ at the daily target), a running timer counting down, the next urgent quest, and
+Physics RPG reviews due. It redraws whenever the data changes, also after a background sync. A tap opens the app.
+
 Your phone's Google account must sync calendars (Android Settings → Accounts → Google → Calendar on).
 
 Updates: when a new APK is published the app notifies you; Settings → **Install** downloads, verifies the

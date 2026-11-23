@@ -194,6 +194,8 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
     /** Bumped on every change; Compose screens observe it. */
     val version: StateFlow<Int> = _version
     var onLocalChange: (() -> Unit)? = null
+    /** Any change, local or from a sync (the home-screen widget redraws on it). */
+    var onAnyChange: (() -> Unit)? = null
 
     private var cache: Derived? = null
 
@@ -261,6 +263,7 @@ class Store(context: Context, private val log: (String, String) -> Unit = { _, _
         save()
         _version.value = _version.value + 1
         if (local) onLocalChange?.invoke()
+        onAnyChange?.invoke()
     }
 
     // ---- generic records --------------------------------------------------
