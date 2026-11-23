@@ -162,7 +162,7 @@ the second it takes to save an event.
 4. Tap the bug icon (top right) → Server URL + Token → **Save & test**.
 
 **Home-screen widget:** long-press the home screen → Widgets → Questboard · today. A dark card with centred text: your level ring
-and today's focus time (green ✓ at the daily target), a running timer counting down, the next urgent quest, and
+and today's focus time (green ✓ at the daily target), a running timer counting down, the next two upcoming todos (overdue ones left out), and
 Physics RPG reviews due. It redraws whenever the data changes, also after a background sync. A tap opens the app.
 
 Your phone's Google account must sync calendars (Android Settings → Accounts → Google → Calendar on).

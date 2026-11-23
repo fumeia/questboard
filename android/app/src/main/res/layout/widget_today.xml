@@ -70,6 +70,18 @@
         android:textSize="16sp" />
 
     <TextView
+        android:id="@+id/w_next2"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:fontFamily="sans-serif-light"
+        android:gravity="center"
+        android:maxLines="1"
+        android:textColor="@color/widget_muted"
+        android:textSize="16sp"
+        android:visibility="gone" />
+
+    <TextView
         android:id="@+id/w_reviews"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"

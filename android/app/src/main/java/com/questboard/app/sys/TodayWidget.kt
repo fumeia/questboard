@@ -31,7 +31,8 @@ import com.questboard.app.ui.rpgReviews
  * Home-screen widget: a dark card (the app's colours) with centred text, readable on any wallpaper and in light or dark mode.
  *   [level ring] 1h 34m focus      (green ✓ once the daily target is reached)
  *   Focus · 18:42                   (only while a timer runs; counts by itself)
- *   Next: QM Übungsblatt 7 · tomorrow
+ *   QM Übungsblatt 7 · tomorrow        (the next two upcoming todos; overdue ones are left out)
+ *   Analysis II · Blatt 6 · in 3d
  *   3 reviews due in the Physics RPG
  * Redrawn whenever the data changes (also after a background sync), and every 30 minutes for the date.
  */
@@ -82,16 +83,19 @@ class TodayWidget : AppWidgetProvider() {
                 v.setChronometerCountDown(R.id.w_timer, countdown)
             } else v.setViewVisibility(R.id.w_timer_row, View.GONE)
 
-            // the most urgent open quest: soonest due (within 3 days), else the first in Do first, else in Schedule
+            // the next two upcoming todos: due today or later, soonest first (overdue ones are left out), then quests without a
+            // date from Do first and Schedule
             val open = s.openQuests()
-            val dated = open.mapNotNull { q -> dueInDays(q)?.let { q to it } }.minByOrNull { it.second }?.takeIf { it.second <= 3 }
-            val next = dated?.first ?: open.firstOrNull { it.str("quadrant") == "q1" } ?: open.firstOrNull { it.str("quadrant") == "q2" }
-            if (next != null) {
-                val dd = dated?.second
-                val whenTxt = when { dd == null -> ""; dd < 0 -> " · ${-dd}d late"; dd == 0L -> " · today"; dd == 1L -> " · tomorrow"; else -> " · in ${dd}d" }
-                v.setTextViewText(R.id.w_next, "Next: ${rowTitle(next)}$whenTxt")
-            } else v.setTextViewText(R.id.w_next, "Nothing urgent. Good time for the Physics RPG.")
-
+            fun whenTxt(dd: Long?) = when { dd == null -> ""; dd == 0L -> " · today"; dd == 1L -> " · tomorrow"; else -> " · in ${dd}d" }
+            val upcoming = open.mapNotNull { q -> dueInDays(q)?.takeIf { it >= 0 }?.let { q to it } }.sortedBy { it.second }
+            val undated = (open.filter { it.str("quadrant") == "q1" } + open.filter { it.str("quadrant") == "q2" })
+                .filter { dueInDays(it) == null }.map { it to null as Long? }
+            val shown = (upcoming.map { it.first to it.second as Long? } + undated).take(2)
+            // one line each, so a long title never pushes the second todo out
+            v.setTextViewText(R.id.w_next, shown.getOrNull(0)?.let { (q, dd) -> rowTitle(q) + whenTxt(dd) } ?: "Nothing coming up. Good time for the Physics RPG.")
+            val second = shown.getOrNull(1)
+            v.setViewVisibility(R.id.w_next2, if (second != null) View.VISIBLE else View.GONE)
+            if (second != null) v.setTextViewText(R.id.w_next2, rowTitle(second.first) + whenTxt(second.second))
             // reviews due in the game (the "respawns due" quests; the course quests carry the same number)
             val respawnQuests = s.quests.filter { it.str("kind") == "respawn" && !it.optBoolean("done") }
             val reviews = if (respawnQuests.isNotEmpty()) respawnQuests.sumOf { rpgReviews(it) }
